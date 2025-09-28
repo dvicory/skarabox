@@ -498,6 +498,12 @@ in
               prepare-dual-migration -n ${name} "$@"
             '';
           };
+
+          # Phase 2: Install runtime keys on existing hosts  
+          install-runtime-key = import ../lib/install-runtime-key.nix {
+            inherit pkgs;
+            hostName = name;
+          };
         in {
           "${name}-boot-ssh" = boot-ssh;
           "${name}-sops" = sops;
@@ -509,6 +515,7 @@ in
           "${name}-get-facter" = get-facter;
           "${name}-unlock" = unlock;
           "${name}-prepare-dual-migration" = prepare-dual-migration;
+          "${name}-install-runtime-key" = install-runtime-key;
         };
     in {
       packages = let

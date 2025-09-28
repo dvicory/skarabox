@@ -33,14 +33,40 @@ This safely:
 - ✅ Updates SOPS config with both keys 
 - ✅ No behavior changes yet
 
-**Phase 2: Deploy Normally**
+## Phase 2: Install Runtime Keys
+
+After Phase 1 is complete and deployed, install the runtime SSH keys on existing hosts.
+
+### Option 1: Automated (Recommended)
+
 ```bash
-colmena deploy
-# or
-nix run .#myhost-install-on-beacon
+nix run .#<host>-install-runtime-key
 ```
 
-The runtime key installs automatically via skarabox's built-in activation scripts.
+This automatically copies the runtime keys and deploys with colmena.
+
+### Option 2: Manual Steps
+
+```bash
+# Step 1: Copy runtime keys to target host
+scp -P <ssh_port> -i <host>/ssh <host>/runtime_host_key* <username>@<host_ip>:/tmp/
+
+# Step 2: Deploy with colmena (activation script will install the keys)
+nix run .#colmena -- apply --on <host>
+```
+
+### Example for a host named "builder":
+
+```bash
+# Automated:
+nix run .#builder-install-runtime-key
+
+# Or manual:
+scp -P 22 -i builder/ssh builder/runtime_host_key* root@192.168.1.100:/tmp/
+nix run .#colmena -- apply --on builder
+```
+
+The skarabox activation script automatically detects runtime keys in `/tmp/` and installs them to `/persist/ssh/` with proper permissions.
 
 **Phase 3: Switch to Dual Mode** (Coming Soon)
 ```bash

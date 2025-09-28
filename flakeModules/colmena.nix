@@ -26,8 +26,6 @@ in
         } // (let
           mkNode = name: cfg': let
             hostCfg = topLevelConfig.flake.nixosConfigurations.${name}.config;
-            runtimeKeyPath = "${name}/runtime_host_key";
-            runtimeKeyPubPath = "${name}/runtime_host_key.pub";
           in
             {
               deployment = {
@@ -39,24 +37,6 @@ in
                   "-o" "UserKnownHostsFile=${cfg'.knownHosts}"
                   "-o" "ConnectTimeout=10"
                 ] ++ lib.optionals (cfg'.sshPrivateKeyPath != null) [ "-i" cfg'.sshPrivateKeyPath ];
-
-                # Deploy runtime SSH keys for dual SSH key migration
-                keys = lib.optionalAttrs (cfg'.runtimeHostKeyPub != null) {
-                  "runtime_host_key" = {
-                    keyCommand = ["cat" runtimeKeyPath];
-                    destDir = "/tmp";
-                    user = "root";
-                    group = "root";
-                    permissions = "0600";
-                  };
-                  "runtime_host_key.pub" = {
-                    keyCommand = ["cat" runtimeKeyPubPath];
-                    destDir = "/tmp";
-                    user = "root";
-                    group = "root";
-                    permissions = "0644";
-                  };
-                };
               };
 
               imports = cfg'.modules ++ [
