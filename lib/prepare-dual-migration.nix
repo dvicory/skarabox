@@ -262,13 +262,21 @@ pkgs.writeShellApplication {
       
       echo ""
       echo "Next steps:"
-      echo "  1. Review the updated SOPS configuration"
+      echo "  1. Add runtime key paths to your flake.nix:"
+      echo "     skarabox.hosts.$HOST_NAME = {"
+      echo "       runtimeHostKeyPub = ./$HOST_NAME/runtime_host_key.pub;"
+      echo "       # ... existing config"
+      echo "     };"
+      echo ""
+      echo "  2. Deploy normally (runtime key installs automatically):"
+      echo "     colmena deploy"
+      echo "     # or"
+      echo "     nix run .#$HOST_NAME-install-on-beacon"
+      echo ""
+      echo "  3. When ready to switch: nix run .#$HOST_NAME-enable-dual-mode"
       if [[ -f "$HOME/.gnupg/secring.gpg" ]] || command -v age-keygen >/dev/null 2>&1; then
-        echo "  2. Test local SOPS decryption: nix run .#sops -- -d $SOPS_FILE"
-        echo "  3. When ready, run migration: nix run .#$HOST_NAME-install-runtime-key"
-      else
-        echo "  2. When ready, run migration: nix run .#$HOST_NAME-install-runtime-key"
-        echo "     (secrets will be re-encrypted during deployment)"
+        echo ""
+        echo "Optional: Test local SOPS decryption: nix run .#sops -- -d $SOPS_FILE"
       fi
       echo ""
       echo "ℹ️  The host is still in single-key mode. No behavior has changed yet."

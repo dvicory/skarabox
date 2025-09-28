@@ -62,7 +62,7 @@ in
           runtimeHostKeyPath = mkOption {
             description = "Path from the top of the repo to the runtime ssh private file (dual SSH key mode only).";
             type = types.nullOr types.str;
-            default = null;
+            default = "${name}/runtime_host_key";
           };
           runtimeHostKeyPub = mkOption {
             description = "Runtime SSH public file (dual SSH key mode only).";
@@ -498,20 +498,6 @@ in
               prepare-dual-migration -n ${name} "$@"
             '';
           };
-
-          # Phase 2: Runtime key installation helper
-          install-runtime-key = pkgs.writeShellApplication {
-            name = "install-runtime-key";
-            runtimeInputs = [
-              (import ../lib/install-runtime-key.nix {
-                inherit pkgs;
-                add-sops-cfg = import ../lib/add-sops-cfg.nix { inherit pkgs; };
-              })
-            ];
-            text = ''
-              install-runtime-key -n ${name} "$@"
-            '';
-          };
         in {
           "${name}-boot-ssh" = boot-ssh;
           "${name}-sops" = sops;
@@ -523,7 +509,6 @@ in
           "${name}-get-facter" = get-facter;
           "${name}-unlock" = unlock;
           "${name}-prepare-dual-migration" = prepare-dual-migration;
-          "${name}-install-runtime-key" = install-runtime-key;
         };
     in {
       packages = let
