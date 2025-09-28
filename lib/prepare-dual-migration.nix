@@ -171,35 +171,22 @@ pkgs.writeShellApplication {
         return 0
       fi
       
-      # Add runtime key to SOPS configuration
-      # This is a simplified approach - in production, use more robust YAML manipulation
+      # Add runtime key to SOPS configuration using add-sops-cfg
       echo "Adding runtime key to SOPS configuration..."
       
-      # Create temporary config with both keys
-      cat > "$SOPS_CONFIG.tmp" << EOF
-keys:
-  - &main_user \$(yq e '.keys[0]' "$SOPS_CONFIG" | sed 's/^.*age/age/')
-  - &''${HOST_NAME}_initrd \$INITRD_AGE_KEY  # Existing initrd key
-  - &''${HOST_NAME}_runtime \$RUNTIME_AGE_KEY  # New runtime key for migration
-
-creation_rules:
-  - path_regex: ''${HOST_NAME}/secrets.yaml\$
-    key_groups:
-      - age:
-          - *main_user
-          - *''${HOST_NAME}_initrd
-          - *''${HOST_NAME}_runtime
-EOF
-
-      # Merge with existing rules for other hosts if they exist
-      if yq e '.creation_rules | length > 1' "$SOPS_CONFIG" >/dev/null 2>&1; then
-        echo "Warning: Multiple creation rules detected. Manual SOPS config merge may be needed."
-        echo "Please review $SOPS_CONFIG.tmp and merge manually if needed."
-      else
-        mv "$SOPS_CONFIG.tmp" "$SOPS_CONFIG"
-        echo "✓ Updated SOPS configuration with dual keys"
+      # Add the runtime key as an alias
+      if ! add-sops-cfg -o "$SOPS_CONFIG" alias "''${HOST_NAME}_runtime" "$RUNTIME_AGE_KEY"; then
+        echo "Error: Failed to add runtime key alias to SOPS configuration" >&2
+        exit 1
       fi
       
+      # Add the runtime key to the path regex rules  
+      if ! add-sops-cfg -o "$SOPS_CONFIG" path-regex "''${HOST_NAME}_runtime" "''${HOST_NAME}/secrets.yaml"; then
+        echo "Error: Failed to add runtime key to path regex rules" >&2
+        exit 1
+      fi
+      
+      echo "✓ Updated SOPS configuration with dual keys"
       log "✓ SOPS config updated successfully"
     }
 
