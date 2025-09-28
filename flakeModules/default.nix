@@ -486,9 +486,17 @@ in
           };
 
           # Phase 2: Migration helper for existing hosts
-          prepare-dual-migration = import ../lib/prepare-dual-migration.nix {
-            inherit pkgs;
-            add-sops-cfg = import ../lib/add-sops-cfg.nix { inherit pkgs; };
+          prepare-dual-migration = pkgs.writeShellApplication {
+            name = "prepare-dual-migration";
+            runtimeInputs = [
+              (import ../lib/prepare-dual-migration.nix {
+                inherit pkgs;
+                add-sops-cfg = import ../lib/add-sops-cfg.nix { inherit pkgs; };
+              })
+            ];
+            text = ''
+              prepare-dual-migration -n ${name} "$@"
+            '';
           };
         in {
           "${name}-boot-ssh" = boot-ssh;
