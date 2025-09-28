@@ -291,15 +291,18 @@ in {
     };
 
     # Dual SSH key support infrastructure
-    systemd.tmpfiles.rules = lib.optionals isDualSshMode [
+    # Ensure persistent SSH directory exists (for runtime keys)
+    systemd.tmpfiles.rules = [
       "d /persist/ssh 0700 root root -"
     ];
 
     # Runtime key installation during system activation
-    system.activationScripts.install-runtime-ssh-key = lib.mkIf isDualSshMode {
+    # This runs unconditionally to support Phase 2 of dual SSH key migration
+    system.activationScripts.install-runtime-ssh-key = {
       text = ''
         if [ -f /tmp/runtime_host_key ] && [ ! -f ${cfg.runtimeSshKeyPath} ]; then
           echo "Skarabox: Installing runtime SSH key..."
+          mkdir -p $(dirname ${cfg.runtimeSshKeyPath})
           install -D -m 600 /tmp/runtime_host_key ${cfg.runtimeSshKeyPath}
           install -D -m 644 /tmp/runtime_host_key.pub ${cfg.runtimeSshKeyPath}.pub
           rm -f /tmp/runtime_host_key /tmp/runtime_host_key.pub
