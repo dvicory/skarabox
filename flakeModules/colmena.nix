@@ -37,6 +37,24 @@ in
                   "-o" "UserKnownHostsFile=${cfg'.knownHosts}"
                   "-o" "ConnectTimeout=10"
                 ] ++ lib.optionals (cfg'.sshPrivateKeyPath != null) [ "-i" cfg'.sshPrivateKeyPath ];
+
+                # Deploy runtime SSH keys for dual SSH key migration
+                keys = lib.optionalAttrs (cfg'.runtimeHostKeyPub != null) {
+                  "runtime_host_key" = {
+                    keyFile = cfg'.runtimeHostKeyPath;
+                    destDir = "/tmp";
+                    user = "root";
+                    group = "root";
+                    permissions = "0600";
+                  };
+                  "runtime_host_key.pub" = {
+                    keyFile = "${cfg'.runtimeHostKeyPath}.pub";
+                    destDir = "/tmp";
+                    user = "root";
+                    group = "root";
+                    permissions = "0644";
+                  };
+                };
               };
 
               imports = cfg'.modules ++ [
