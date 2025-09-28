@@ -1,15 +1,14 @@
 {
   pkgs,
   hostName,
-  ...
+  hostCfg,
+  nixosCfg,
 }:
 pkgs.writeShellApplication {
   name = "install-runtime-key";
 
   runtimeInputs = [
     pkgs.openssh
-    pkgs.nixos-rebuild
-    pkgs.colmena
   ];
 
   text = ''
@@ -100,17 +99,12 @@ USAGE
     # Deploy runtime key using skarabox's activation infrastructure
     log "Copying runtime keys to $HOST_NAME..."
 
-    # Get host connection info from flake
-    HOST_IP=$(nix eval --raw ".#skarabox.hosts.$HOST_NAME.ip" 2>/dev/null || echo "")
-    SSH_PORT=$(nix eval --json ".#nixosConfigurations.$HOST_NAME.config.skarabox.sshPort" 2>/dev/null || echo "22")
-    SSH_USER=$(nix eval --raw ".#nixosConfigurations.$HOST_NAME.config.skarabox.username" 2>/dev/null || echo "root")
-    KNOWN_HOSTS=$(nix eval --raw ".#skarabox.hosts.$HOST_NAME.knownHosts" 2>/dev/null || echo "$HOST_NAME/known_hosts")
-    SSH_KEY=$(nix eval --raw ".#skarabox.hosts.$HOST_NAME.sshPrivateKeyPath" 2>/dev/null || echo "$HOST_NAME/ssh")
-
-    if [[ -z "$HOST_IP" ]]; then
-      echo "Error: Could not determine IP for host $HOST_NAME"
-      exit 1
-    fi
+    # Get host connection info from passed configuration
+    HOST_IP="${hostCfg.ip}"
+    SSH_PORT="${toString nixosCfg.skarabox.sshPort}"
+    SSH_USER="${nixosCfg.skarabox.username}"
+    KNOWN_HOSTS="${hostCfg.knownHosts}"
+    SSH_KEY="${if hostCfg.sshPrivateKeyPath != null then hostCfg.sshPrivateKeyPath else "${hostName}/ssh"}"
 
     # Copy runtime keys to /tmp/ on target host
     log "Copying runtime keys to $HOST_IP:$SSH_PORT"

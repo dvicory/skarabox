@@ -503,6 +503,8 @@ in
           install-runtime-key = import ../lib/install-runtime-key.nix {
             inherit pkgs;
             hostName = name;
+            hostCfg = cfg';
+            nixosCfg = hostCfg;
           };
         in {
           "${name}-boot-ssh" = boot-ssh;
