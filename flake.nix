@@ -76,7 +76,11 @@
           };
 
           gen-new-host = import ./lib/gen-new-host.nix {
-            inherit add-sops-cfg pkgs;
+            inherit pkgs add-sops-cfg;
+          };
+
+          prepare-dual-migration = import ./lib/prepare-dual-migration.nix {
+            inherit pkgs add-sops-cfg;
           };
 
           manualHtml = pkgs.callPackage ./docs {

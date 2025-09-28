@@ -484,6 +484,12 @@ in
               printf '%s' "$root_passphrase" | boot-ssh -T "$@"
             '';
           };
+
+          # Phase 2: Migration helper for existing hosts
+          prepare-dual-migration = import ../lib/prepare-dual-migration.nix {
+            inherit pkgs;
+            add-sops-cfg = import ../lib/add-sops-cfg.nix { inherit pkgs; };
+          };
         in {
           "${name}-boot-ssh" = boot-ssh;
           "${name}-sops" = sops;
@@ -494,6 +500,7 @@ in
           "${name}-ssh" = ssh;
           "${name}-get-facter" = get-facter;
           "${name}-unlock" = unlock;
+          "${name}-prepare-dual-migration" = prepare-dual-migration;
         };
     in {
       packages = let
