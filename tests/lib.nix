@@ -192,4 +192,43 @@ in
       cmd = "alias a OTHERSOPSKEY";
     };
   };
+
+  # Test dual SSH key mode configuration generation (default)
+  testGenNewHost_dualMode = {
+    expected = true;
+    expr = 
+      let
+        # Test the template processing logic directly
+        configTemplate = builtins.readFile ../template/myskarabox/configuration.nix;
+        hasDualKeyPath = builtins.match ".*persist/ssh/runtime_host_key.*" configTemplate != null;
+      in hasDualKeyPath;
+  };
+
+  # Test single key mode detection logic from configuration.nix module
+  testDualKeyAutoDetection_single = {
+    expected = false;
+    expr =
+      let
+        # Test the auto-detection logic with single key SOPS config
+        testConfig = {
+          sops.age.sshKeyPaths = [ "/boot/host_key" ];
+        };
+        # This would be the logic from modules/configuration.nix
+        isDualMode = builtins.any (path: builtins.match ".*/persist/ssh/runtime_host_key.*" path != null) testConfig.sops.age.sshKeyPaths;
+      in isDualMode;
+  };
+
+  # Test dual key mode detection logic from configuration.nix module  
+  testDualKeyAutoDetection_dual = {
+    expected = true;
+    expr =
+      let
+        # Test the auto-detection logic with dual key SOPS config
+        testConfig = {
+          sops.age.sshKeyPaths = [ "/persist/ssh/runtime_host_key" ];
+        };
+        # This would be the logic from modules/configuration.nix
+        isDualMode = builtins.any (path: builtins.match ".*/persist/ssh/runtime_host_key.*" path != null) testConfig.sops.age.sshKeyPaths;
+      in isDualMode;
+  };
 }

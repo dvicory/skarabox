@@ -59,6 +59,18 @@ in
             apply = readAsStr;
             example = lib.literalExpression "./${name}/host_key.pub";
           };
+          runtimeHostKeyPath = mkOption {
+            description = "Path from the top of the repo to the runtime ssh private file (dual SSH key mode only).";
+            type = types.nullOr types.str;
+            default = null;
+          };
+          runtimeHostKeyPub = mkOption {
+            description = "Runtime SSH public file (dual SSH key mode only).";
+            type = types.nullOr (with types; oneOf [ str path ]);
+            default = null;
+            apply = v: if v == null then null else readAsStr v;
+            example = lib.literalExpression "./${name}/runtime_host_key.pub";
+          };
           ip = mkOption {
             description = ''
               IP or hostname used to ssh into the server.
@@ -340,10 +352,24 @@ in
               ssh_port=${toString hostCfg.skarabox.sshPort}
               ssh_boot_port=${toString hostCfg.skarabox.boot.sshPort}
               host_key_pub="${cfg'.hostKeyPub}"
-
-              gen-knownhosts-file \
-                "$host_key_pub" "$ip" $ssh_port $ssh_boot_port \
-                > ${cfg'.knownHostsPath}
+              
+              # Generate known_hosts file  
+              {
+                # Check if dual SSH keys are configured
+                ${lib.optionalString (cfg'.runtimeHostKeyPub != null) ''
+                  runtime_key_pub="${cfg'.runtimeHostKeyPub}"
+                  echo "# Skarabox Dual SSH Keys - Generated $(date)"
+                  echo "# Initrd key (vulnerable, boot unlock only)"
+                  gen-knownhosts-file "$host_key_pub" "$ip" $ssh_boot_port
+                  echo "# Runtime key (secure, administrative access)"
+                  gen-knownhosts-file "$runtime_key_pub" "$ip" $ssh_port
+                ''}
+                
+                # Single key mode (backward compatibility)
+                ${lib.optionalString (cfg'.runtimeHostKeyPub == null) ''
+                  gen-knownhosts-file "$host_key_pub" "$ip" $ssh_port $ssh_boot_port
+                ''}
+              } > ${cfg'.knownHostsPath}
             '';
           };
 
@@ -403,7 +429,7 @@ in
                 -p $ssh_port \
                 -f "$flake" \
                 -k ${cfg'.hostKeyPath} \
-                -a "--ssh-option ConnectTimeout=10 ${if cfg'.sshPrivateKeyPath != null then "-i ${cfg'.sshPrivateKeyPath}" else ""} ${concatStringsSep " " diskEncryptionOptions} $*"
+                -a "--ssh-option ConnectTimeout=10 ${if cfg'.sshPrivateKeyPath != null then "-i ${cfg'.sshPrivateKeyPath}" else ""} ${concatStringsSep " " diskEncryptionOptions} ${lib.optionalString (cfg'.runtimeHostKeyPath != null) "--extra-files ${cfg'.runtimeHostKeyPath} /tmp/runtime_host_key --extra-files ${cfg'.runtimeHostKeyPath}.pub /tmp/runtime_host_key.pub"} $*"
             '';
           };
 
