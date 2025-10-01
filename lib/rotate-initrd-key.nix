@@ -48,22 +48,20 @@ pkgs.writeShellApplication {
     echo
     [[ $REPLY =~ ^[Yy]$ ]] || { echo "Aborted."; exit 0; }
     
-    # Upload key to temporary file on remote system
-    echo "Uploading new key to remote system..."
-    REMOTE_KEY_FILE=$(ssh -p "$SSH_PORT" -i "$SSH_KEY" -o UserKnownHostsFile="$KNOWN_HOSTS" "$SSH_USER@$HOST_IP" \
-      "mktemp /tmp/new-initrd-key.XXXXXX")
-    cat "$PRIVATE_KEY_PATH" | ssh -p "$SSH_PORT" -i "$SSH_KEY" -o UserKnownHostsFile="$KNOWN_HOSTS" "$SSH_USER@$HOST_IP" \
-      "cat > $REMOTE_KEY_FILE && chmod 600 $REMOTE_KEY_FILE"
-    
     # Remote script - uses system tools already on NixOS
+    echo ""
     echo "Running rotation on remote system..."
     echo ""
+    
+    # Pass the key via environment variable (safer than stdin for multiline)
+    PRIVATE_KEY_CONTENT=$(cat "$PRIVATE_KEY_PATH")
+    export PRIVATE_KEY_CONTENT
+    
     ssh -p "$SSH_PORT" -i "$SSH_KEY" -o UserKnownHostsFile="$KNOWN_HOSTS" "$SSH_USER@$HOST_IP" \
-      "REMOTE_KEY_FILE='$REMOTE_KEY_FILE' bash" <<'REMOTE_SCRIPT'
-      set -euo pipefail
-      
-      # Read private key content from temporary file
-      PRIVATE_KEY_CONTENT=$(cat "$REMOTE_KEY_FILE")
+      'PRIVATE_KEY_CONTENT="'"$PRIVATE_KEY_CONTENT"'" bash' <<'REMOTE_SCRIPT'
+set -euo pipefail
+
+# Private key is available in PRIVATE_KEY_CONTENT environment variable
       
       # Discover current boot partition configuration
       echo "[1/8] Discovering current partition layout..."
@@ -160,7 +158,6 @@ pkgs.writeShellApplication {
       echo ""
       echo "[8/8] Cleaning up..."
       sudo rm -rf /tmp/boot-backup
-      rm -f "$REMOTE_KEY_FILE"
       
       echo ""
       echo "✓ Rotation complete!"
