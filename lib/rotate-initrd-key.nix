@@ -4,20 +4,6 @@
   hostCfg,
   nixosCfg,
 }:
-let
-  # Create a package with all tools we need on the remote system
-  remoteTools = pkgs.buildEnv {
-    name = "rotate-initrd-tools";
-    paths = [
-      pkgs.util-linux      # findmnt, lsblk, umount, mount
-      pkgs.dosfstools       # mkfs.vfat
-      pkgs.rsync
-      pkgs.coreutils       # dd, install, mkdir, rm, etc
-      pkgs.gnugrep
-      pkgs.gawk
-    ];
-  };
-in
 pkgs.writeShellApplication {
   name = "rotate-initrd-key";
   
@@ -38,7 +24,6 @@ pkgs.writeShellApplication {
     SSH_KEY="${if hostCfg.sshPrivateKeyPath != null then hostCfg.sshPrivateKeyPath else "${hostName}/ssh"}"
     KNOWN_HOSTS="${hostCfg.knownHosts}"
     PRIVATE_KEY_PATH="${hostCfg.hostKeyPath}"
-    REMOTE_TOOLS="${remoteTools}"
     
     # Validate
     [[ -f "$PRIVATE_KEY_PATH" ]] || { echo "Error: $PRIVATE_KEY_PATH not found"; exit 1; }
@@ -63,24 +48,22 @@ pkgs.writeShellApplication {
     echo
     [[ $REPLY =~ ^[Yy]$ ]] || { echo "Aborted."; exit 0; }
     
-    # Copy tools to remote system
-    echo ""
-    echo "Copying tools to remote system..."
-    nix-copy-closure --to "$SSH_USER@$HOST_IP" "$REMOTE_TOOLS"
+    # Upload key to temporary file on remote system
+    echo "Uploading new key to remote system..."
+    REMOTE_KEY_FILE=$(ssh -p "$SSH_PORT" -i "$SSH_KEY" -o UserKnownHostsFile="$KNOWN_HOSTS" "$SSH_USER@$HOST_IP" \
+      "mktemp /tmp/new-initrd-key.XXXXXX")
+    cat "$PRIVATE_KEY_PATH" | ssh -p "$SSH_PORT" -i "$SSH_KEY" -o UserKnownHostsFile="$KNOWN_HOSTS" "$SSH_USER@$HOST_IP" \
+      "cat > $REMOTE_KEY_FILE && chmod 600 $REMOTE_KEY_FILE"
     
-    # Read new key content and base64 encode it for safe transport
-    PRIVATE_KEY_CONTENT_B64=$(base64 < "$PRIVATE_KEY_PATH")
-    
-    # Remote script using the tools we just copied
+    # Remote script - uses system tools already on NixOS
     echo "Running rotation on remote system..."
     echo ""
     ssh -p "$SSH_PORT" -i "$SSH_KEY" -o UserKnownHostsFile="$KNOWN_HOSTS" "$SSH_USER@$HOST_IP" \
-      "PRIVATE_KEY_CONTENT_B64='$PRIVATE_KEY_CONTENT_B64' PATH=$REMOTE_TOOLS/bin:\$PATH bash" \
-      <<'REMOTE_SCRIPT'
+      "REMOTE_KEY_FILE='$REMOTE_KEY_FILE' bash" <<'REMOTE_SCRIPT'
       set -euo pipefail
       
-      # Decode private key content from environment variable
-      PRIVATE_KEY_CONTENT=$(echo "$PRIVATE_KEY_CONTENT_B64" | base64 -d)
+      # Read private key content from temporary file
+      PRIVATE_KEY_CONTENT=$(cat "$REMOTE_KEY_FILE")
       
       # Discover current boot partition configuration
       echo "[1/8] Discovering current partition layout..."
@@ -177,6 +160,7 @@ pkgs.writeShellApplication {
       echo ""
       echo "[8/8] Cleaning up..."
       sudo rm -rf /tmp/boot-backup
+      rm -f "$REMOTE_KEY_FILE"
       
       echo ""
       echo "✓ Rotation complete!"
