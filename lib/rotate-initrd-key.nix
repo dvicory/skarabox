@@ -94,7 +94,7 @@ pkgs.writeShellApplication {
       
       echo "      Device: $BOOT_DEV"
       echo "      Filesystem: $BOOT_FSTYPE"
-      echo "      Label: ${BOOT_LABEL:-<none>}"
+      echo "      Label: ''${BOOT_LABEL:-<none>}"
       echo "      Mount options: $BOOT_MOUNT_OPTS"
       
       # Validate it's vfat (we only handle FAT filesystems)

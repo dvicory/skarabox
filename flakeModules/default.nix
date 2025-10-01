@@ -358,10 +358,7 @@ in
                 # Check if dual SSH keys are configured
                 ${lib.optionalString (cfg'.runtimeHostKeyPub != null) ''
                   runtime_key_pub="${cfg'.runtimeHostKeyPub}"
-                  echo "# Skarabox Dual SSH Keys - Generated $(date)"
-                  echo "# Initrd key (vulnerable, boot unlock only)"
                   gen-knownhosts-file "$host_key_pub" "$ip" $ssh_boot_port
-                  echo "# Runtime key (secure, administrative access)"
                   gen-knownhosts-file "$runtime_key_pub" "$ip" $ssh_port
                 ''}
                 
