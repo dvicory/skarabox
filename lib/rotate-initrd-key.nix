@@ -68,17 +68,19 @@ pkgs.writeShellApplication {
     echo "Copying tools to remote system..."
     nix-copy-closure --to "$SSH_USER@$HOST_IP" "$REMOTE_TOOLS"
     
-    # Read new key content
-    PRIVATE_KEY_CONTENT=$(cat "$PRIVATE_KEY_PATH")
+    # Read new key content and base64 encode it for safe transport
+    PRIVATE_KEY_CONTENT_B64=$(base64 < "$PRIVATE_KEY_PATH")
     
     # Remote script using the tools we just copied
     echo "Running rotation on remote system..."
     echo ""
     ssh -p "$SSH_PORT" -i "$SSH_KEY" -o UserKnownHostsFile="$KNOWN_HOSTS" "$SSH_USER@$HOST_IP" \
-      "PRIVATE_KEY_CONTENT=\$1 PATH=$REMOTE_TOOLS/bin:\$PATH bash -s" \
-      "$PRIVATE_KEY_CONTENT" \
+      "PRIVATE_KEY_CONTENT_B64='$PRIVATE_KEY_CONTENT_B64' PATH=$REMOTE_TOOLS/bin:\$PATH bash" \
       <<'REMOTE_SCRIPT'
       set -euo pipefail
+      
+      # Decode private key content from environment variable
+      PRIVATE_KEY_CONTENT=$(echo "$PRIVATE_KEY_CONTENT_B64" | base64 -d)
       
       # Discover current boot partition configuration
       echo "[1/8] Discovering current partition layout..."
