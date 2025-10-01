@@ -37,18 +37,18 @@ pkgs.writeShellApplication {
     SSH_USER="${nixosCfg.skarabox.username}"
     SSH_KEY="${if hostCfg.sshPrivateKeyPath != null then hostCfg.sshPrivateKeyPath else "${hostName}/ssh"}"
     KNOWN_HOSTS="${hostCfg.knownHosts}"
-    NEW_KEY="${hostName}/host_key"
+    PRIVATE_KEY_PATH="${hostCfg.hostKeyPath}"
     REMOTE_TOOLS="${remoteTools}"
     
     # Validate
-    [[ -f "$NEW_KEY" ]] || { echo "Error: $NEW_KEY not found"; exit 1; }
+    [[ -f "$PRIVATE_KEY_PATH" ]] || { echo "Error: $PRIVATE_KEY_PATH not found"; exit 1; }
     
     # Show fingerprints
     echo "Initrd SSH Key Rotation for $HOST_NAME"
     echo "========================================"
     echo ""
     echo "Old key: $(ssh -p "$SSH_PORT" -i "$SSH_KEY" -o UserKnownHostsFile="$KNOWN_HOSTS" "$SSH_USER@$HOST_IP" "sudo ssh-keygen -l -f /boot/host_key")"
-    echo "New key: $(ssh-keygen -l -f "$NEW_KEY")"
+    echo "New key: $(ssh-keygen -l -f "$PRIVATE_KEY_PATH")"
     echo ""
     echo "This will:"
     echo "  1. Backup /boot contents to tmpfs"
@@ -68,11 +68,15 @@ pkgs.writeShellApplication {
     echo "Copying tools to remote system..."
     nix-copy-closure --to "$SSH_USER@$HOST_IP" "$REMOTE_TOOLS"
     
+    # Read new key content
+    PRIVATE_KEY_CONTENT=$(cat "$PRIVATE_KEY_PATH")
+    
     # Remote script using the tools we just copied
     echo "Running rotation on remote system..."
     echo ""
     ssh -p "$SSH_PORT" -i "$SSH_KEY" -o UserKnownHostsFile="$KNOWN_HOSTS" "$SSH_USER@$HOST_IP" \
-      "PATH=$REMOTE_TOOLS/bin:\$PATH bash -s" \
+      "PRIVATE_KEY_CONTENT=\$1 PATH=$REMOTE_TOOLS/bin:\$PATH bash -s" \
+      "$PRIVATE_KEY_CONTENT" \
       <<'REMOTE_SCRIPT'
       set -euo pipefail
       
@@ -137,7 +141,7 @@ pkgs.writeShellApplication {
       echo ""
       echo "[6/8] Restoring boot files and installing new key..."
       sudo rsync -a /tmp/boot-backup/ /boot/
-      sudo install -m 600 /dev/stdin /boot/host_key
+      echo "$PRIVATE_KEY_CONTENT" | sudo install -m 600 /dev/stdin /boot/host_key
       echo "      New key installed"
       
       # Handle mirrored boot
@@ -153,7 +157,7 @@ pkgs.writeShellApplication {
         fi
         sudo mount -o "$BOOT_MOUNT_OPTS" "$BACKUP_DEV" /boot-backup
         sudo rsync -a /tmp/boot-backup/ /boot-backup/
-        sudo install -m 600 /dev/stdin /boot-backup/host_key
+        echo "$PRIVATE_KEY_CONTENT" | sudo install -m 600 /dev/stdin /boot-backup/host_key
         echo "       Backup boot updated"
       fi
       
@@ -175,14 +179,13 @@ pkgs.writeShellApplication {
       echo ""
       echo "✓ Rotation complete!"
 REMOTE_SCRIPT
-    < "$NEW_KEY"
     
     # Verify
     echo ""
     echo "Verification"
     echo "============"
     ACTUAL_FP=$(ssh -p "$SSH_PORT" -i "$SSH_KEY" -o UserKnownHostsFile="$KNOWN_HOSTS" "$SSH_USER@$HOST_IP" "sudo ssh-keygen -l -f /boot/host_key")
-    EXPECTED_FP=$(ssh-keygen -l -f "$NEW_KEY")
+    EXPECTED_FP=$(ssh-keygen -l -f "$PRIVATE_KEY_PATH")
     echo "Expected: $EXPECTED_FP"
     echo "Actual:   $ACTUAL_FP"
     
