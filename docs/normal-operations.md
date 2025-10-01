@@ -130,14 +130,13 @@ All commands are prefixed by the hostname, allowing to handle multiple hosts.
 
    **For dual SSH key hosts:**
    ```bash
-   # Rotate initrd key (boot unlock only - required after migration)
+   # Rotate initrd key (boot unlock only - uses secure block-level wipe)
    $ ssh-keygen -t ed25519 -N "" -f ./myskarabox/host_key
-   $ # Add rotateInitrdKey to myskarabox/configuration.nix:
-   $ # skarabox.boot.rotateInitrdKey = ./host_key;
+   $ # Update flake.nix to reference new key (hostKeyPub = ./myskarabox/host_key.pub)
+   $ nix run .#myskarabox-rotate-initrd-key  # Securely wipes boot partition
    $ nix run .#myskarabox-gen-knownhosts-file
-   $ nix run .#deploy-rs  # Installs new key to /boot/host_key
-   $ # Remove rotateInitrdKey from configuration.nix
-   $ nix run .#deploy-rs  # Clean up
+   $ # Test initrd SSH: ssh -p $(cat myskarabox/ssh_boot_port) root@$(cat myskarabox/ip)
+   $ # Reboot to activate: ssh $(cat myskarabox/ip) sudo reboot
    
    # Rotate runtime key (SOPS secrets - only if compromised)
    $ ssh-keygen -t ed25519 -N "" -f ./myskarabox/runtime_host_key
