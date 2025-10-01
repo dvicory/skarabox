@@ -94,7 +94,7 @@ set -euo pipefail
       echo ""
       echo "[2/8] Backing up boot files to tmpfs..."
       mkdir -p /tmp/boot-backup
-      rsync -a /boot/ /tmp/boot-backup/ --exclude=host_key
+      sudo rsync -a /boot/ /tmp/boot-backup/ --exclude=host_key
       echo "      $(du -sh /tmp/boot-backup | cut -f1) backed up"
       
       # Unmount and wipe
