@@ -23,6 +23,15 @@ You get:
 
 ## For Existing Hosts
 
+**Migration requires 4 phases** (all existing hosts were created with single keys):
+
+1. **Phase 1**: Generate runtime keys (`prepare-dual-migration`)
+2. **Phase 2**: Install runtime keys on target system (`install-runtime-key`) 
+3. **Phase 3**: Update configuration to use both keys (manual edit)
+4. **Phase 4**: Re-encrypt SOPS secrets for both keys ⚠️ **CRITICAL FOR SECURITY**
+
+> **Important**: The POC exploit still works until Phase 4 is complete! The configuration may show dual keys, but SOPS secrets remain encrypted with only the old key.
+
 **Phase 1: Prepare Migration**
 ```bash
 nix run .#myhost-prepare-dual-migration
@@ -68,17 +77,137 @@ nix run .#colmena -- apply --on builder
 
 The skarabox activation script automatically detects runtime keys in `/tmp/` and installs them to `/persist/ssh/` with proper permissions.
 
-**Phase 3: Switch to Dual Mode** (Coming Soon)
-```bash
-nix run .#myhost-enable-dual-mode  
+**Phase 3: Switch to Dual Mode**
+
+Manually update your host's configuration to use both keys:
+
+```nix
+# In your host's configuration.nix:
+sops.age.sshKeyPaths = [
+  "/boot/host_key"                      # Original initrd key  
+  "/persist/ssh/runtime_host_key"       # New runtime key
+];
 ```
+
+Then deploy the configuration:
+
+```bash
+nix run .#colmena -- apply --on myhost
+```
+
+The system will automatically detect dual SSH mode and apply the appropriate security model.
+
+**Phase 4: Re-encrypt SOPS Secrets** 🔐
+
+**CRITICAL**: The configuration change in Phase 3 only tells SOPS which keys to *try* - it doesn't change which keys can actually decrypt the secrets! You must re-encrypt the secrets to include ONLY the runtime key (removing the vulnerable initrd key).
+
+**Why this matters:** Until Phase 4, an attacker with physical access can still decrypt all secrets using the initrd key, even though your configuration shows dual keys.
+
+**Step 1: Remove the initrd key from recipients**
+
+```bash
+# Remove the initrd key from secrets encryption
+cd myhost/
+SOPS_AGE_KEY_FILE=../sops.key nix run .#sops -- -r -i --rm-age \
+  $(nix shell nixpkgs#ssh-to-age -c ssh-keygen -y -f host_key | ssh-to-age) \
+  secrets.yaml
+```
+
+**Step 2: Verify the exploit is now blocked**
+
+```bash
+# This should FAIL after Phase 4
+ssh myhost 'sudo cat /boot/host_key' > /tmp/stolen_key
+nix shell nixpkgs#ssh-to-age -c ssh-to-age -private-key -i /tmp/stolen_key > /tmp/stolen_key.age
+SOPS_AGE_KEY_FILE=/tmp/stolen_key.age nix run .#sops -- -d myhost/secrets.yaml
+# Should output: "Recovery failed because no master key was able to decrypt the file"
+```
+
+**Step 3: Deploy the secure configuration**
+
+```bash
+nix run .#colmena -- apply --on myhost
+```
+
+## Security Architecture Summary
+
+| Component | Single Key (Legacy) | **Dual Keys (Secure)** |
+|-----------|-------------------|----------------------|
+| **Boot unlock** | Initrd key | Initrd key |
+| **SOPS secrets** | ❌ Initrd key (vulnerable) | ✅ Runtime key (secure) |
+| **Admin SSH** | Initrd key | Runtime key |
+| **Physical attack** | 💥 Full compromise | 🔒 Boot unlock only |
+
+⚠️ **CRITICAL: Git History Vulnerability** ⚠️
+
+Even after Phase 4, **old secrets files in git history can still be decrypted with the stolen initrd key**! The secrets themselves (passwords, keys) don't change when you re-encrypt the file.
+
+**Phase 5: Rotate Secrets** (Required for Complete Security)
+
+After completing Phases 1-4, you MUST rotate the actual secret values:
+
+```bash
+# 1. Generate new user password  
+mkpasswd -m yescrypt > new-password-hash
+
+# 2. Generate new disk encryption keys
+openssl rand -hex 32 > new-root-passphrase
+openssl rand -hex 32 > new-data-passphrase  
+
+# 3. Update secrets file with new values
+nix run .#sops -- -e myhost/secrets.yaml
+# Edit: Replace old password hash and passphrases with new ones
+
+# 4. Deploy new secrets
+nix run .#colmena -- apply --on myhost
+
+# 5. Update disk encryption (requires careful planning!)
+# This is complex and system-specific - plan carefully!
+```
+
+**Without Phase 5, an attacker with git access + physical access can still compromise your system using old secrets from repository history.**
 
 ## Current Status
 
 ✅ **New hosts**: Dual keys by default  
-✅ **Existing hosts**: Phase 1 preparation ready  
-✅ **Phase 2**: Use your normal deployment - runtime key installs automatically  
-🚧 **Migration**: Phase 3 (`enable-dual-mode`) coming soon
+✅ **Existing hosts**: Migration workflow complete (4 phases)  
+🚨 **CRITICAL GAP**: Git history vulnerability - Phase 5 (secret rotation) required  
+⚠️ **Partial Security**: Phase 4 blocks current secrets, but old secrets in git history remain vulnerable  
+✅ **Testing**: POC exploit blocked for new secrets, but works for old secrets from git history  
+
+## Troubleshooting
+
+**Verify your migration status:**
+
+```bash
+# Check if system detects dual SSH mode
+nix eval .#nixosConfigurations.myhost.config.skarabox.isDualSshMode
+
+# Check which keys SOPS configuration expects
+nix eval .#nixosConfigurations.myhost.config.sops.age.sshKeyPaths
+
+# Check which keys exist on the system  
+ssh myhost 'sudo ls -la /boot/host_key /persist/ssh/runtime_host_key'
+
+# Check which keys the secrets are ACTUALLY encrypted for
+head -20 myhost/secrets.yaml  # Look for age1... recipients
+```
+
+**Test the POC exploit:**
+
+```bash
+# Get the initrd key (simulate physical access)
+ssh myhost 'sudo cat /boot/host_key' > /tmp/stolen_key
+
+# This should FAIL after Phase 4 is complete
+SOPS_AGE_KEY_FILE=/tmp/stolen_key nix run .#sops -- -d myhost/secrets.yaml
+```
+
+**Common Issues:**
+
+- **Phase 3 complete but exploit still works**: You need Phase 4! The secrets are still encrypted with only the old key.
+- **SSH host key changed**: Expected after Phase 2 - the system now uses the runtime key for SSH connections.
+- **Can't connect via SSH after Phase 2**: Update your `~/.ssh/known_hosts` or use `ssh-keygen -R <host_ip>`.
 
 ## Backward Compatibility
 

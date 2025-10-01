@@ -79,11 +79,70 @@ All commands are prefixed by the hostname, allowing to handle multiple hosts.
 
    and copy needed config in [flake.nix][].
 
+## Migrate to dual SSH keys {#migrate-dual-keys}
+
+   ::: {.warning}
+   **Security Warning:** Single SSH key hosts are vulnerable to physical attacks. If someone gains physical access to your server, they can extract the `/boot/host_key` and decrypt all your secrets (passwords, API keys, etc.). Migrate to dual keys to safeguard your user data at rest.
+   :::
+
+   Upgrade existing hosts from single SSH key to dual SSH key architecture. This separates the initrd key from your administrative secrets, protecting SOPS-encrypted data from physical attacks. **Note:** New hosts created with `gen-new-host` use dual keys by default.
+
+   ```bash
+   $ nix run .#myskarabox-prepare-dual-migration  # Generate runtime keys & update SOPS
+   $ nix run .#myskarabox-install-runtime-key     # Install on target
+   ```
+   
+   Update `myskarabox/configuration.nix` to switch SOPS to runtime key:
+   ```nix
+   sops.age.sshKeyPaths = [
+     "/persist/ssh/runtime_host_key"   # Switch from /boot/host_key
+   ];
+   ```
+   
+   Update `flake.nix` to enable dual key mode:
+   ```nix
+   skarabox.hosts.myskarabox = {
+     # ... existing config
+     runtimeHostKeyPub = ./myskarabox/runtime_host_key.pub;
+   };
+   ```
+   
+   Then regenerate known_hosts, deploy, and cleanup:
+   ```bash
+   $ nix run .#myskarabox-gen-knownhosts-file  # Update for dual keys
+   $ nix run .#deploy-rs                       # Apply dual key config
+   $ age_key=$(nix shell nixpkgs#ssh-to-age -c ssh-to-age < myskarabox/host_key.pub)
+   $ nix run .#sops -- -r -i --rm-age "$age_key" myskarabox/secrets.yaml
+   ```
+   
+   **Important:** After migration, rotate the boot key (see below) to protect against git history attacks where old secrets could be decrypted with a stolen boot key.
+
 ## Rotate host key {#rotate-host-key}
 
+   **For single SSH key hosts (legacy):**
    ```bash
    $ ssh-keygen -f ./myskarabox/host_key
    $ nix run .#add-sops-cfg -- -o .sops.yaml alias myskarabox $(ssh-to-age -i ./myskarabox/host_key.pub)
+   $ nix run .#sops -- updatekeys ./myskarabox/secrets.yaml
+   $ nix run .#myskarabox-gen-knownhosts-file
    $ nix run .#deploy-rs
-   $ nix run .#baryum-gen-knownhosts-file
+   ```
+
+   **For dual SSH key hosts:**
+   ```bash
+   # Rotate initrd key (boot unlock only - required after migration)
+   $ ssh-keygen -t ed25519 -N "" -f ./myskarabox/host_key
+   $ # Add rotateInitrdKey to myskarabox/configuration.nix:
+   $ # skarabox.boot.rotateInitrdKey = ./host_key;
+   $ nix run .#myskarabox-gen-knownhosts-file
+   $ nix run .#deploy-rs  # Installs new key to /boot/host_key
+   $ # Remove rotateInitrdKey from configuration.nix
+   $ nix run .#deploy-rs  # Clean up
+   
+   # Rotate runtime key (SOPS secrets - only if compromised)
+   $ ssh-keygen -t ed25519 -N "" -f ./myskarabox/runtime_host_key
+   $ nix run .#add-sops-cfg -- -o .sops.yaml alias myskarabox_runtime $(ssh-to-age -i ./myskarabox/runtime_host_key.pub)
+   $ nix run .#sops -- updatekeys ./myskarabox/secrets.yaml
+   $ nix run .#myskarabox-gen-knownhosts-file
+   $ nix run .#deploy-rs
    ```
