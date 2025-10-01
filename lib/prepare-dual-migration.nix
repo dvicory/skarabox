@@ -7,17 +7,8 @@ pkgs.writeShellApplication {
     pkgs.sops
     pkgs.jq
     pkgs.yq-go
+    pkgs.ssh-to-age
     add-sops-cfg
-  ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
-    # ssh-to-age is needed for Age key conversion
-    (pkgs.writeShellScriptBin "ssh-to-age" ''
-      ${pkgs.ssh-to-age}/bin/ssh-to-age "$@"
-    '')
-  ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
-    # On macOS, use nix shell to access ssh-to-age  
-    (pkgs.writeShellScriptBin "ssh-to-age" ''
-      nix shell nixpkgs#ssh-to-age -c ssh-to-age "$@"
-    '')
   ];
 
   text = ''

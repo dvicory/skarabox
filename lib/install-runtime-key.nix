@@ -140,9 +140,20 @@ USAGE
     echo "  # Should show: 'Skarabox: Runtime SSH key installed'"
     echo ""
 
-    success "Phase 2 setup complete - runtime keys are ready for installation"
-    warn "Complete the deployment above, then run enable-dual-mode"
+    success "Phase 2 setup complete - runtime keys installed"
     echo ""
-    echo "Final step: nix run .#$HOST_NAME-enable-dual-mode"
+    echo "Next steps to complete dual SSH key migration:"
+    echo "1. Update $HOST_NAME/configuration.nix:"
+    echo "   sops.age.sshKeyPaths = [ \"/persist/ssh/runtime_host_key\" ];"
+    echo ""
+    echo "2. Regenerate known_hosts: nix run .#$HOST_NAME-gen-knownhosts-file"
+    echo ""
+    echo "3. Deploy: nix run .#deploy-rs (or colmena, etc.)"
+    echo ""
+    echo "4. Remove boot key from SOPS:"
+    echo "   age_key=\$(nix shell nixpkgs#ssh-to-age -c ssh-to-age < $HOST_NAME/host_key.pub)"
+    echo "   nix run .#sops -- -r -i --rm-age \"\$age_key\" $HOST_NAME/secrets.yaml"
+    echo ""
+    echo "See docs/normal-operations.md for complete migration guide"
   '';
 }

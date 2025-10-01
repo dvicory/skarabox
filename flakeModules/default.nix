@@ -506,6 +506,14 @@ in
             hostCfg = cfg';
             nixosCfg = hostCfg;
           };
+
+          # Rotate initrd SSH key with secure partition recreation
+          rotate-initrd-key = import ../lib/rotate-initrd-key.nix {
+            inherit pkgs;
+            hostName = name;
+            hostCfg = cfg';
+            nixosCfg = hostCfg;
+          };
         in {
           "${name}-boot-ssh" = boot-ssh;
           "${name}-sops" = sops;
@@ -518,6 +526,7 @@ in
           "${name}-unlock" = unlock;
           "${name}-prepare-dual-migration" = prepare-dual-migration;
           "${name}-install-runtime-key" = install-runtime-key;
+          "${name}-rotate-initrd-key" = rotate-initrd-key;
         };
     in {
       packages = let

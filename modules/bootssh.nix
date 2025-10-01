@@ -19,15 +19,6 @@ in
       default = 2222;
       apply = readAsInt;
     };
-
-    rotateInitrdKey = mkOption {
-      type = types.nullOr types.path;
-      default = null;
-      description = ''
-        Path to new initrd private key for remote rotation.
-        When set, the initrd key will be replaced during system activation.
-      '';
-    };
   };
 
   config = {
@@ -68,30 +59,5 @@ in
       # ip=<client-ip>:<server-ip>:<gw-ip>:<netmask>:<hostname>:<device>:<autoconf>:<dns0-ip>:<dns1-ip>:<ntp0-ip>
       "ip=${cfg'.ip}::${cfg'.gateway}:255.255.255.0:${config.skarabox.hostname}-initrd:${cfg'.deviceName}:off:::"
     ]);
-
-    # Support for remote initrd key rotation (dual key architecture)
-    system.activationScripts.rotate-initrd-key = lib.mkIf (cfg.rotateInitrdKey != null) {
-      text = ''
-        echo "Skarabox: Rotating initrd SSH key..."
-        
-        # Backup current key for safety
-        if [ -f /boot/host_key ]; then
-          cp /boot/host_key /boot/host_key.backup-$(date +%s)
-        fi
-        
-        # Install new initrd key
-        install -m 600 ${cfg.rotateInitrdKey} /boot/host_key
-        
-        # Handle backup boot partition if using disk mirroring
-        ${lib.optionalString (config.skarabox.disks.rootPool.disk2 != null) ''
-          if [ -d /boot-backup ]; then
-            install -m 600 ${cfg.rotateInitrdKey} /boot-backup/host_key
-          fi
-        ''}
-        
-        echo "Skarabox: Initrd key rotation completed - reboot to activate"
-      '';
-      deps = [ "users" ];
-    };
   };
 }

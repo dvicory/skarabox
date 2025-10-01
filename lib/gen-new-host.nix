@@ -242,7 +242,7 @@ USAGE
       e "   • Boot unlock limited to vulnerable initrd key only"
       e ""
       e "   Your host is ready for deployment with dual SSH key security!"
-      e "   Configuration automatically enables skarabox.dualSshKeys.enable = true"
+      e "   System auto-detects dual mode from SOPS configuration"
     else
       e ""
       e "⚠️  LEGACY SINGLE KEY MODE:"
