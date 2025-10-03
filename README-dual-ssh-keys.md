@@ -1,10 +1,10 @@
-# Dual SSH Keys in Skarabox
+# Dual Host Keys in Skarabox
 
-Skarabox supports dual SSH keys for enhanced security while maintaining full backward compatibility.
+Skarabox supports dual host keys for enhanced security while maintaining full backward compatibility.
 
 ## Security Benefits
 
-| Single Key (Legacy) | Dual Keys (Default) |
+| Single Host Key (Legacy) | Dual Host Keys (Default) |
 |-------------------|-------------------|
 | Physical access = full compromise | Physical access = boot unlock only |
 | SOPS secrets at risk | SOPS secrets protected |
@@ -19,18 +19,18 @@ nix run skarabox#gen-new-host -- -n myhost
 
 You get:
 - **Initrd Key** (`/boot/host_key`): Boot unlock only
-- **Runtime Key** (`/persist/ssh/runtime_host_key`): Admin access + SOPS
+- **Runtime Key** (`/persist/etc/ssh/ssh_host_ed25519_key`): Admin access + SOPS (OpenSSH standard path)
 
 ## For Existing Hosts
 
-**Migration requires 4 phases** (all existing hosts were created with single keys):
+**Migration requires 4 phases** (all existing hosts were created with single host keys):
 
 1. **Phase 1**: Generate runtime keys (`prepare-dual-migration`)
 2. **Phase 2**: Install runtime keys on target system (`install-runtime-key`) 
 3. **Phase 3**: Update configuration to use both keys (manual edit)
 4. **Phase 4**: Re-encrypt SOPS secrets for both keys ⚠️ **CRITICAL FOR SECURITY**
 
-> **Important**: The POC exploit still works until Phase 4 is complete! The configuration may show dual keys, but SOPS secrets remain encrypted with only the old key.
+> **Important**: The POC exploit still works until Phase 4 is complete! The configuration may show dual host keys, but SOPS secrets remain encrypted with only the old key.
 
 **Phase 1: Prepare Migration**
 ```bash
@@ -38,13 +38,13 @@ nix run .#myhost-prepare-dual-migration
 ```
 
 This safely:
-- ✅ Generates runtime SSH key
+- ✅ Generates runtime host key
 - ✅ Updates SOPS config with both keys 
 - ✅ No behavior changes yet
 
-## Phase 2: Install Runtime Keys
+### Phase 2: Deploy Runtime Keys (Push to Hosts)
 
-After Phase 1 is complete and deployed, install the runtime SSH keys on existing hosts.
+After Phase 1 is complete and deployed, install the runtime host keys on existing hosts.
 
 ### Option 1: Automated (Recommended)
 
@@ -75,7 +75,7 @@ scp -P 22 -i builder/ssh builder/runtime_host_key* root@192.168.1.100:/tmp/
 nix run .#colmena -- apply --on builder
 ```
 
-The skarabox activation script automatically detects runtime keys in `/tmp/` and installs them to `/persist/ssh/` with proper permissions.
+The skarabox activation script automatically detects runtime keys in `/tmp/` and installs them to `/persist/etc/ssh/` with proper permissions (OpenSSH standard path).
 
 **Phase 3: Switch to Dual Mode**
 
@@ -84,8 +84,8 @@ Manually update your host's configuration to use both keys:
 ```nix
 # In your host's configuration.nix:
 sops.age.sshKeyPaths = [
-  "/boot/host_key"                      # Original initrd key  
-  "/persist/ssh/runtime_host_key"       # New runtime key
+  "/boot/host_key"                                  # Original initrd key  
+  "/persist/etc/ssh/ssh_host_ed25519_key"          # New runtime key (OpenSSH standard)
 ];
 ```
 
@@ -95,13 +95,13 @@ Then deploy the configuration:
 nix run .#colmena -- apply --on myhost
 ```
 
-The system will automatically detect dual SSH mode and apply the appropriate security model.
+The system will automatically detect dual host key mode and apply the appropriate security model.
 
 **Phase 4: Re-encrypt SOPS Secrets** 🔐
 
 **CRITICAL**: The configuration change in Phase 3 only tells SOPS which keys to *try* - it doesn't change which keys can actually decrypt the secrets! You must re-encrypt the secrets to include ONLY the runtime key (removing the vulnerable initrd key).
 
-**Why this matters:** Until Phase 4, an attacker with physical access can still decrypt all secrets using the initrd key, even though your configuration shows dual keys.
+**Why this matters:** Until Phase 4, an attacker with physical access can still decrypt all secrets using the initrd key, even though your configuration shows dual host keys.
 
 **Step 1: Remove the initrd key from recipients**
 
@@ -131,7 +131,7 @@ nix run .#colmena -- apply --on myhost
 
 ## Security Architecture Summary
 
-| Component | Single Key (Legacy) | **Dual Keys (Secure)** |
+| Component | Single Host Key (Legacy) | **Dual Host Keys (Secure)** |
 |-----------|-------------------|----------------------|
 | **Boot unlock** | Initrd key | Initrd key |
 | **SOPS secrets** | ❌ Initrd key (vulnerable) | ✅ Runtime key (secure) |
@@ -180,14 +180,14 @@ nix run .#colmena -- apply --on myhost
 **Verify your migration status:**
 
 ```bash
-# Check if system detects dual SSH mode
-nix eval .#nixosConfigurations.myhost.config.skarabox.isDualSshMode
+# Check if system detects dual host key mode
+nix eval .#nixosConfigurations.myhost.config.skarabox.isDualHostMode
 
 # Check which keys SOPS configuration expects
 nix eval .#nixosConfigurations.myhost.config.sops.age.sshKeyPaths
 
 # Check which keys exist on the system  
-ssh myhost 'sudo ls -la /boot/host_key /persist/ssh/runtime_host_key'
+ssh myhost 'sudo ls -la /boot/host_key /persist/etc/ssh/ssh_host_ed25519_key'
 
 # Check which keys the secrets are ACTUALLY encrypted for
 head -20 myhost/secrets.yaml  # Look for age1... recipients
@@ -213,7 +213,7 @@ SOPS_AGE_KEY_FILE=/tmp/stolen_key nix run .#sops -- -d myhost/secrets.yaml
 
 Existing hosts continue working unchanged. This is not a breaking change.
 
-For single key mode (if needed):
+For single host key mode (if needed):
 ```bash
 nix run skarabox#gen-new-host -- --single-key -n myhost
 ```

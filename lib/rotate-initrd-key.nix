@@ -8,39 +8,78 @@ pkgs.writeShellApplication {
   name = "rotate-initrd-key";
   
   runtimeInputs = [
-    pkgs.openssh
-    pkgs.coreutils
-    pkgs.nix  # for nix-copy-closure
+    pkgs.openssh     # ssh, ssh-keygen
+    pkgs.coreutils   # cat
   ];
 
   text = ''
     set -euo pipefail
 
     # From flake configuration
-    HOST_NAME="${hostName}"
-    HOST_IP="${hostCfg.ip}"
-    SSH_PORT="${toString nixosCfg.skarabox.sshPort}"
-    SSH_USER="${nixosCfg.skarabox.username}"
-    SSH_KEY="${if hostCfg.sshPrivateKeyPath != null then hostCfg.sshPrivateKeyPath else "${hostName}/ssh"}"
-    KNOWN_HOSTS="${hostCfg.knownHosts}"
-    PRIVATE_KEY_PATH="${hostCfg.hostKeyPath}"
+    host_name="${hostName}"
+    host_ip="${hostCfg.ip}"
+    ssh_port="${toString nixosCfg.skarabox.sshPort}"
+    ssh_user="${nixosCfg.skarabox.username}"
+    ssh_key="${if hostCfg.sshPrivateKeyPath != null then hostCfg.sshPrivateKeyPath else "${hostName}/ssh"}"
+    known_hosts="${hostCfg.knownHosts}"
+    private_key_path="${hostCfg.hostKeyPath}"
+
+    usage () {
+      cat <<USAGE
+    Usage: $0 [-h]
+
+      -h: Shows this usage
+
+    Rotates the initrd SSH key for host: ${hostName}
+
+    This command will:
+      1. Backup /boot contents to tmpfs
+      2. Securely wipe the boot partition (dd + TRIM/discard)
+      3. Recreate the filesystem
+      4. Restore boot files with new SSH key
+      5. Reinstall bootloader
+
+    The old key will be unrecoverable (block-level wipe).
+
+    After rotation, you must:
+      1. Update known_hosts: nix run .#${hostName}-gen-knownhosts-file
+      2. Reboot to activate: ssh $ssh_user@$host_ip sudo reboot
+USAGE
+    }
+
+    while getopts "h" o; do
+      case "''${o}" in
+        h)
+          usage
+          exit 0
+          ;;
+        *)
+          usage
+          exit 1
+          ;;
+      esac
+    done
+    shift $((OPTIND-1))
     
     # Validate
-    [[ -f "$PRIVATE_KEY_PATH" ]] || { echo "Error: $PRIVATE_KEY_PATH not found"; exit 1; }
+    if [ ! -f "$private_key_path" ]; then
+      echo "Error: $private_key_path not found" >&2
+      exit 1
+    fi
     
     # Show fingerprints
-    echo "Initrd SSH Key Rotation for $HOST_NAME"
+    echo "Initrd SSH Key Rotation for $host_name"
     echo "========================================"
     echo ""
-    echo "Old key: $(ssh -p "$SSH_PORT" -i "$SSH_KEY" -o UserKnownHostsFile="$KNOWN_HOSTS" "$SSH_USER@$HOST_IP" "sudo ssh-keygen -l -f /boot/host_key")"
-    echo "New key: $(ssh-keygen -l -f "$PRIVATE_KEY_PATH")"
+    echo "Old key: $(ssh -p "$ssh_port" -i "$ssh_key" -o UserKnownHostsFile="$known_hosts" "$ssh_user@$host_ip" "sudo ssh-keygen -l -f /boot/host_key")"
+    echo "New key: $(ssh-keygen -l -f "$private_key_path")"
     echo ""
     echo "This will:"
-    echo "  1. Backup /boot contents to tmpfs"
-    echo "  2. Securely wipe the boot partition (dd with zeros)"
-    echo "  3. Recreate the filesystem"
-    echo "  4. Restore boot files with new SSH key"
-    echo "  5. Reinstall bootloader"
+    echo " 1. Backup /boot contents to tmpfs"
+    echo " 2. Securely wipe the boot partition (dd + TRIM/discard)"
+    echo " 3. Recreate the filesystem"
+    echo " 4. Restore boot files with new SSH key"
+    echo " 5. Reinstall bootloader"
     echo ""
     echo "Security: Old key will be unrecoverable (block-level wipe)"
     echo ""
@@ -54,39 +93,39 @@ pkgs.writeShellApplication {
     echo ""
     
     # Pass the key via environment variable (safer than stdin for multiline)
-    PRIVATE_KEY_CONTENT=$(cat "$PRIVATE_KEY_PATH")
-    export PRIVATE_KEY_CONTENT
+    private_key_content=$(cat "$private_key_path")
+    export private_key_content
     
-    ssh -p "$SSH_PORT" -i "$SSH_KEY" -o UserKnownHostsFile="$KNOWN_HOSTS" "$SSH_USER@$HOST_IP" \
-      'PRIVATE_KEY_CONTENT="'"$PRIVATE_KEY_CONTENT"'" bash' <<'REMOTE_SCRIPT'
-set -euo pipefail
+    ssh -p "$ssh_port" -i "$ssh_key" -o UserKnownHostsFile="$known_hosts" "$ssh_user@$host_ip" \
+      'private_key_content="'"$private_key_content"'" bash' <<'REMOTE_SCRIPT'
+      set -euo pipefail
 
-# Private key is available in PRIVATE_KEY_CONTENT environment variable
+      # Private key is available in private_key_content environment variable
       
       # Discover current boot partition configuration
       echo "[1/8] Discovering current partition layout..."
-      BOOT_DEV=$(findmnt -n -o SOURCE /boot)
-      BOOT_FSTYPE=$(lsblk -ndo FSTYPE "$BOOT_DEV")
-      BOOT_LABEL=$(lsblk -ndo LABEL "$BOOT_DEV" || echo "")
-      BOOT_MOUNT_OPTS=$(findmnt -n -o OPTIONS /boot)
+      boot_dev=$(findmnt -n -o SOURCE /boot)
+      boot_fstype=$(lsblk -ndo FSTYPE "$boot_dev")
+      boot_label=$(lsblk -ndo LABEL "$boot_dev" || echo "")
+      boot_mount_opts=$(findmnt -n -o OPTIONS /boot)
       
       # Check for mirrored boot
       if findmnt /boot-backup &>/dev/null; then
-        HAS_BACKUP=true
-        BACKUP_DEV=$(findmnt -n -o SOURCE /boot-backup)
-        echo "      Found mirrored boot: $BACKUP_DEV"
+        has_backup=1
+        backup_dev=$(findmnt -n -o SOURCE /boot-backup)
+        echo "     Found mirrored boot: $backup_dev"
       else
-        HAS_BACKUP=false
+        has_backup=0
       fi
       
-      echo "      Device: $BOOT_DEV"
-      echo "      Filesystem: $BOOT_FSTYPE"
-      echo "      Label: ''${BOOT_LABEL:-<none>}"
-      echo "      Mount options: $BOOT_MOUNT_OPTS"
+      echo "     Device: $boot_dev"
+      echo "     Filesystem: $boot_fstype"
+      echo "     Label: ''${boot_label:-<none>}"
+      echo "     Mount options: $boot_mount_opts"
       
       # Validate it's vfat (we only handle FAT filesystems)
-      if [[ "$BOOT_FSTYPE" != "vfat" ]]; then
-        echo "Error: Expected vfat filesystem, found $BOOT_FSTYPE"
+      if [ "$boot_fstype" != "vfat" ]; then
+        echo "Error: Expected vfat filesystem, found $boot_fstype" >&2
         exit 1
       fi
       
@@ -95,7 +134,7 @@ set -euo pipefail
       echo "[2/8] Backing up boot files to tmpfs..."
       mkdir -p /tmp/boot-backup
       sudo rsync -a /boot/ /tmp/boot-backup/ --exclude=host_key
-      echo "      $(du -sh /tmp/boot-backup | cut -f1) backed up"
+      echo "     $(du -sh /tmp/boot-backup | cut -f1) backed up"
       
       # Unmount and wipe
       echo ""
@@ -103,56 +142,64 @@ set -euo pipefail
       sudo umount /boot
       
       echo ""
-      echo "[4/8] Securely wiping $BOOT_DEV (this may take a moment)..."
-      sudo dd if=/dev/zero of="$BOOT_DEV" bs=1M status=progress 2>&1 || true
-      echo "      Wipe complete"
+      echo "[4/8] Securely wiping $boot_dev (this may take a moment)..."
+      sudo dd if=/dev/zero of="$boot_dev" bs=1M status=progress 2>&1 || true
+      echo "     → Block-level wipe complete"
+      
+      # Issue TRIM/discard for SSDs (helps with wear-leveling)
+      if command -v blkdiscard >/dev/null 2>&1; then
+        echo "     → Issuing TRIM/discard..."
+        sudo blkdiscard "$boot_dev" 2>&1 || echo "     → (TRIM not supported, skipping)"
+      fi
       
       # Recreate filesystem with discovered parameters
       echo ""
       echo "[5/8] Recreating filesystem..."
-      if [[ -n "$BOOT_LABEL" ]]; then
-        sudo mkfs.vfat -F 32 -n "$BOOT_LABEL" "$BOOT_DEV"
+      if [ -n "$boot_label" ]; then
+        sudo mkfs.vfat -F 32 -n "$boot_label" "$boot_dev"
       else
-        sudo mkfs.vfat -F 32 "$BOOT_DEV"
+        sudo mkfs.vfat -F 32 "$boot_dev"
       fi
       
       # Mount with discovered options
-      echo "      Mounting..."
-      sudo mount -o "$BOOT_MOUNT_OPTS" "$BOOT_DEV" /boot
+      echo "     Mounting..."
+      sudo mount -o "$boot_mount_opts" "$boot_dev" /boot
       
       # Restore and install new key
       echo ""
       echo "[6/8] Restoring boot files and installing new key..."
       sudo rsync -a /tmp/boot-backup/ /boot/
-      echo "$PRIVATE_KEY_CONTENT" | sudo install -m 600 /dev/stdin /boot/host_key
-      echo "      New key installed"
+      echo "$private_key_content" | sudo install -m 600 /dev/stdin /boot/host_key
+      echo "     New key installed"
       
       # Handle mirrored boot
-      if [[ "$HAS_BACKUP" == "true" ]]; then
-        echo ""
-        echo "[6b/8] Processing mirrored boot partition..."
+      if [ "$has_backup" -eq 1 ]; then
+        echo "     → Processing mirrored boot partition..."
         sudo umount /boot-backup
-        sudo dd if=/dev/zero of="$BACKUP_DEV" bs=1M status=progress 2>&1 || true
-        if [[ -n "$BOOT_LABEL" ]]; then
-          sudo mkfs.vfat -F 32 -n "$BOOT_LABEL" "$BACKUP_DEV"
-        else
-          sudo mkfs.vfat -F 32 "$BACKUP_DEV"
+        sudo dd if=/dev/zero of="$backup_dev" bs=1M status=progress 2>&1 || true
+        if command -v blkdiscard >/dev/null 2>&1; then
+          sudo blkdiscard "$backup_dev" 2>&1 || true
         fi
-        sudo mount -o "$BOOT_MOUNT_OPTS" "$BACKUP_DEV" /boot-backup
+        if [ -n "$boot_label" ]; then
+          sudo mkfs.vfat -F 32 -n "$boot_label" "$backup_dev"
+        else
+          sudo mkfs.vfat -F 32 "$backup_dev"
+        fi
+        sudo mount -o "$boot_mount_opts" "$backup_dev" /boot-backup
         sudo rsync -a /tmp/boot-backup/ /boot-backup/
-        echo "$PRIVATE_KEY_CONTENT" | sudo install -m 600 /dev/stdin /boot-backup/host_key
-        echo "       Backup boot updated"
+        echo "$private_key_content" | sudo install -m 600 /dev/stdin /boot-backup/host_key
+        echo "     → Mirror synchronized"
       fi
       
       # Reinstall bootloader using the system's current bootloader configuration
       echo ""
       echo "[7/8] Reinstalling bootloader..."
-      if [[ -x "/run/current-system/bin/switch-to-configuration" ]]; then
+      if [ -x "/run/current-system/bin/switch-to-configuration" ]; then
         sudo /run/current-system/bin/switch-to-configuration boot || {
-          echo "      Warning: Bootloader reinstall may have failed, but boot contents are restored"
+          echo "     Warning: Bootloader reinstall may have failed, but boot contents are restored"
         }
       else
-        echo "      Warning: Could not find bootloader installer, boot files restored but EFI may need manual update"
+        echo "     Warning: Could not find bootloader installer, boot files restored but EFI may need manual update"
       fi
       
       echo ""
@@ -160,22 +207,22 @@ set -euo pipefail
       sudo rm -rf /tmp/boot-backup
       
       echo ""
-      echo "✓ Rotation complete!"
+      echo "Rotation complete!"
 REMOTE_SCRIPT
     
     # Verify
     echo ""
     echo "Verification"
     echo "============"
-    ACTUAL_FP=$(ssh -p "$SSH_PORT" -i "$SSH_KEY" -o UserKnownHostsFile="$KNOWN_HOSTS" "$SSH_USER@$HOST_IP" "sudo ssh-keygen -l -f /boot/host_key")
-    EXPECTED_FP=$(ssh-keygen -l -f "$PRIVATE_KEY_PATH")
-    echo "Expected: $EXPECTED_FP"
-    echo "Actual:   $ACTUAL_FP"
+    actual_fp=$(ssh -p "$ssh_port" -i "$ssh_key" -o UserKnownHostsFile="$known_hosts" "$ssh_user@$host_ip" "sudo ssh-keygen -l -f /boot/host_key")
+    expected_fp=$(ssh-keygen -l -f "$private_key_path")
+    echo "Expected: $expected_fp"
+    echo "Actual:   $actual_fp"
     
-    if [[ "$EXPECTED_FP" == "$ACTUAL_FP" ]]; then
-      echo "✓ Key rotation verified successfully"
+    if [ "$expected_fp" = "$actual_fp" ]; then
+      echo "Key rotation verified successfully"
     else
-      echo "✗ Warning: Key fingerprints do not match!"
+      echo "Warning: Key fingerprints do not match!" >&2
       exit 1
     fi
     
@@ -183,13 +230,13 @@ REMOTE_SCRIPT
     echo "Next Steps"
     echo "=========="
     echo "1. Update known_hosts:"
-    echo "   nix run .#$HOST_NAME-gen-knownhosts-file"
+    echo "  nix run .#$host_name-gen-knownhosts-file"
     echo ""
     echo "2. Test initrd SSH (before reboot):"
-    echo "   ssh -p \$(cat $HOST_NAME/ssh_boot_port) root@$HOST_IP"
+    echo "  ssh -p \$(cat $host_name/ssh_boot_port) root@$host_ip"
     echo ""
     echo "3. Reboot to activate new key in initrd:"
-    echo "   ssh -p $SSH_PORT $SSH_USER@$HOST_IP sudo reboot"
+    echo "  ssh -p $ssh_port $ssh_user@$host_ip sudo reboot"
     echo ""
   '';
 }

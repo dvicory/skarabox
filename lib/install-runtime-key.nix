@@ -12,62 +12,50 @@ pkgs.writeShellApplication {
   ];
 
   text = ''
-    set -e
-    set -o pipefail
+    set -euo pipefail
 
-    HOST_NAME="${hostName}"
-    FLAKE_ROOT="."
+    host_name="${hostName}"
+    flake_root="."
 
-    # Colors for output
-    GREEN='\033[0;32m'
-    YELLOW='\033[1;33m'
-    BLUE='\033[0;34m'
-    NC='\033[0m' # No Color
-
-    log() {
-      echo -e "''${BLUE}[install-runtime-key]''${NC} $*"
-    }
-
-    success() {
-      echo -e "''${GREEN}[✓]''${NC} $*"
-    }
-
-    warn() {
-      echo -e "''${YELLOW}[⚠]''${NC} $*"
-    }
-
-    usage() {
+    usage () {
       cat <<USAGE
-Usage: $0 [-f FLAKE_ROOT]
-  -h:            Show this usage
-  -f FLAKE_ROOT: Root directory of the flake (default: current directory)
+    Usage: $0 [-h] [-f FLAKE_ROOT]
 
-This is Phase 2 of dual SSH key migration for host: ${hostName}
+      -h:            Shows this usage
+      -f FLAKE_ROOT: Root directory of the flake (default: current directory)
 
-Prerequisites:
-  - Run: nix run .#${hostName}-prepare-dual-migration
-  - Runtime key files must exist: ${hostName}/runtime_host_key*
-  - Host must import skarabox modules
+    Phase 2 of dual host key migration for host: ${hostName}
 
-What this does:
-  1. Validates prerequisites
-  2. Copies runtime keys to /tmp/ on target host
-  3. Shows deployment instructions for your normal workflow
-  4. Host remains in single-key mode (no behavior change)
+    Prerequisites:
+      - Run: nix run .#${hostName}-prepare-dual-migration
+      - Runtime key files must exist: ${hostName}/runtime_host_key*
+      - Host must import skarabox modules
 
-Next step: Deploy, then run nix run .#${hostName}-enable-dual-mode
+    What this does:
+      1. Validates prerequisites
+      2. Copies runtime keys to /tmp/ on target host
+      3. Shows deployment instructions for your normal workflow
+      4. Host remains in single-key mode (no behavior change)
+
+    Next step: Deploy, then run nix run .#${hostName}-enable-dual-mode
 USAGE
     }
 
-    # Parse command line arguments
-    while getopts "hf:" opt; do
-      case ''${opt} in
+    check_empty () {
+      if [ -z "$1" ]; then
+        echo "$3 must not be empty, pass with flag $2" >&2
+        exit 1
+      fi
+    }
+
+    while getopts "hf:" o; do
+      case "''${o}" in
         h)
           usage
           exit 0
           ;;
         f)
-          FLAKE_ROOT="''${OPTARG}"
+          flake_root="''${OPTARG}"
           ;;
         *)
           usage
@@ -75,84 +63,82 @@ USAGE
           ;;
       esac
     done
+    shift $((OPTIND-1))
 
     # Validate prerequisites
-    log "Validating prerequisites for $HOST_NAME..."
+    echo "Validating prerequisites for $host_name..."
 
-    HOST_DIR="$FLAKE_ROOT/$HOST_NAME"
-    if [[ ! -d "$HOST_DIR" ]]; then
-      echo "Error: Host directory not found: $HOST_DIR"
+    host_dir="$flake_root/$host_name"
+    if [ ! -d "$host_dir" ]; then
+      echo "Error: Host directory not found: $host_dir" >&2
       exit 1
     fi
 
-    RUNTIME_KEY="$HOST_DIR/runtime_host_key"
-    RUNTIME_KEY_PUB="$HOST_DIR/runtime_host_key.pub"
+    runtime_key="$host_dir/runtime_host_key"
+    runtime_key_pub="$host_dir/runtime_host_key.pub"
     
-    if [[ ! -f "$RUNTIME_KEY" || ! -f "$RUNTIME_KEY_PUB" ]]; then
-      echo "Error: Runtime key not found. Run prepare-dual-migration first:"
-      echo "  nix run .#$HOST_NAME-prepare-dual-migration"
+    if [ ! -f "$runtime_key" ] || [ ! -f "$runtime_key_pub" ]; then
+      echo "Error: Runtime key not found. Run prepare-dual-migration first:" >&2
+      echo " nix run .#$host_name-prepare-dual-migration" >&2
       exit 1
     fi
 
-    success "Prerequisites validated"
-
-    # Deploy runtime key using skarabox's activation infrastructure
-    log "Copying runtime keys to $HOST_NAME..."
+    echo "Prerequisites validated"
 
     # Get host connection info from passed configuration
-    HOST_IP="${hostCfg.ip}"
-    SSH_PORT="${toString nixosCfg.skarabox.sshPort}"
-    SSH_USER="${nixosCfg.skarabox.username}"
-    KNOWN_HOSTS="${hostCfg.knownHosts}"
-    SSH_KEY="${if hostCfg.sshPrivateKeyPath != null then hostCfg.sshPrivateKeyPath else "${hostName}/ssh"}"
+    host_ip="${hostCfg.ip}"
+    ssh_port="${toString nixosCfg.skarabox.sshPort}"
+    ssh_user="${nixosCfg.skarabox.username}"
+    known_hosts="${hostCfg.knownHosts}"
+    ssh_key="${if hostCfg.sshPrivateKeyPath != null then hostCfg.sshPrivateKeyPath else "${hostName}/ssh"}"
 
-    # Copy runtime keys to /tmp/ on target host
-    log "Copying runtime keys to $HOST_IP:$SSH_PORT"
-    scp -P "$SSH_PORT" -i "$SSH_KEY" \
+    # Copy runtime private key to /tmp/ on target host
+    echo "Copying runtime key to $host_ip:$ssh_port..."
+    scp -P "$ssh_port" -i "$ssh_key" \
       -o "IdentitiesOnly=yes" \
-      -o "UserKnownHostsFile=$KNOWN_HOSTS" \
+      -o "UserKnownHostsFile=$known_hosts" \
       -o "ConnectTimeout=10" \
-      "$RUNTIME_KEY" "$RUNTIME_KEY_PUB" \
-      "$SSH_USER@$HOST_IP:/tmp/"
+      "$runtime_key" \
+      "$ssh_user@$host_ip:/tmp/"
 
-    success "Runtime keys copied to /tmp/ on $HOST_NAME"
+    echo "Runtime key copied to /tmp/ on $host_name"
 
     # Instructions for deployment
     echo ""
-    log "Next: Deploy using your normal workflow to trigger installation"
+    echo "Next: Deploy using your normal workflow to trigger installation"
     echo ""
     echo "Examples:"
-    echo "  nix run .#colmena -- apply --on $HOST_NAME"
-    echo "  nix run .#deploy-rs -- .#$HOST_NAME"
-    echo "  nixos-rebuild switch --flake .#$HOST_NAME --target-host $SSH_USER@$HOST_IP"
+    echo " nix run .#colmena -- apply --on $host_name"
+    echo " nix run .#deploy-rs -- .#$host_name"
+    echo " nixos-rebuild switch --flake .#$host_name --target-host $ssh_user@$host_ip"
     echo ""
     echo "The skarabox activation script will automatically detect the keys in /tmp/"
-    echo "and install them to /persist/ssh/ with proper permissions."
+    echo "and install them to /persist/etc/ssh/ with proper permissions (OpenSSH standard)."
 
     # Validate installation
     echo ""
-    log "After deployment, verify the installation:"
+    echo "After deployment, verify the installation:"
     echo ""
-    echo "  ssh $SSH_USER@$HOST_IP 'sudo ls -la /persist/ssh/'"
-    echo "  # Should show: runtime_host_key (600) and runtime_host_key.pub (644)"
+    echo " ssh $ssh_user@$host_ip 'sudo ls -la /persist/etc/ssh/'"
+    echo " # Should show: ssh_host_ed25519_key (600)"
     echo ""
-    echo "  ssh $SSH_USER@$HOST_IP 'sudo journalctl -u nixos-rebuild-switch | tail -20'"
-    echo "  # Should show: 'Skarabox: Runtime SSH key installed'"
+    echo " ssh $ssh_user@$host_ip 'sudo journalctl -u nixos-rebuild-switch | tail -20'"
+    echo " # Should show: 'Skarabox: Runtime SSH key installed'"
     echo ""
 
-    success "Phase 2 setup complete - runtime keys installed"
+    echo "Phase 2 setup complete - runtime keys installed"
     echo ""
-    echo "Next steps to complete dual SSH key migration:"
-    echo "1. Update $HOST_NAME/configuration.nix:"
-    echo "   sops.age.sshKeyPaths = [ \"/persist/ssh/runtime_host_key\" ];"
+    echo "Next steps to complete dual host key migration:"
+    echo "1. Update $host_name/configuration.nix:"
+    echo "  sops.age.sshKeyPaths = [ \"/persist/etc/ssh/ssh_host_ed25519_key\" ];"
     echo ""
-    echo "2. Regenerate known_hosts: nix run .#$HOST_NAME-gen-knownhosts-file"
+    echo "2. Regenerate known_hosts: nix run .#$host_name-gen-knownhosts-file"
     echo ""
     echo "3. Deploy: nix run .#deploy-rs (or colmena, etc.)"
     echo ""
     echo "4. Remove boot key from SOPS:"
-    echo "   age_key=\$(nix shell nixpkgs#ssh-to-age -c ssh-to-age < $HOST_NAME/host_key.pub)"
-    echo "   nix run .#sops -- -r -i --rm-age \"\$age_key\" $HOST_NAME/secrets.yaml"
+    echo "  age_key=\$(nix shell nixpkgs#ssh-to-age -c ssh-to-age < $host_name/host_key.pub)"
+    echo "  nix run .#sops -- -r -i --rm-age \"\$age_key\" $host_name/secrets.yaml"
     echo ""
     echo "See docs/normal-operations.md for complete migration guide"
   '';

@@ -60,12 +60,12 @@ in
             example = lib.literalExpression "./${name}/host_key.pub";
           };
           runtimeHostKeyPath = mkOption {
-            description = "Path from the top of the repo to the runtime ssh private file (dual SSH key mode only).";
+            description = "Path from the top of the repo to the runtime ssh private file (dual host key mode only).";
             type = types.nullOr types.str;
             default = "${name}/runtime_host_key";
           };
           runtimeHostKeyPub = mkOption {
-            description = "Runtime SSH public file (dual SSH key mode only).";
+            description = "Runtime SSH public file (dual host key mode only).";
             type = types.nullOr (with types; oneOf [ str path ]);
             default = null;
             apply = v: if v == null then null else readAsStr v;
@@ -355,7 +355,7 @@ in
               
               # Generate known_hosts file  
               {
-                # Check if dual SSH keys are configured
+                # Check if dual host keys are configured
                 ${lib.optionalString (cfg'.runtimeHostKeyPub != null) ''
                   runtime_key_pub="${cfg'.runtimeHostKeyPub}"
                   gen-knownhosts-file "$host_key_pub" "$ip" $ssh_boot_port
@@ -426,7 +426,7 @@ in
                 -p $ssh_port \
                 -f "$flake" \
                 -k ${cfg'.hostKeyPath} \
-                -a "--ssh-option ConnectTimeout=10 ${if cfg'.sshPrivateKeyPath != null then "-i ${cfg'.sshPrivateKeyPath}" else ""} ${concatStringsSep " " diskEncryptionOptions} ${lib.optionalString (cfg'.runtimeHostKeyPath != null) "--extra-files ${cfg'.runtimeHostKeyPath} /tmp/runtime_host_key --extra-files ${cfg'.runtimeHostKeyPath}.pub /tmp/runtime_host_key.pub"} $*"
+                -a "--ssh-option ConnectTimeout=10 ${if cfg'.sshPrivateKeyPath != null then "-i ${cfg'.sshPrivateKeyPath}" else ""} ${concatStringsSep " " diskEncryptionOptions} ${lib.optionalString (cfg'.runtimeHostKeyPub != null) "--extra-files ${cfg'.runtimeHostKeyPath} /tmp/runtime_host_key"} $*"
             '';
           };
 
@@ -482,21 +482,13 @@ in
             '';
           };
 
-          # Phase 2: Migration helper for existing hosts
-          prepare-dual-migration = pkgs.writeShellApplication {
-            name = "prepare-dual-migration";
-            runtimeInputs = [
-              (import ../lib/prepare-dual-migration.nix {
-                inherit pkgs;
-                add-sops-cfg = import ../lib/add-sops-cfg.nix { inherit pkgs; };
-              })
-            ];
-            text = ''
-              prepare-dual-migration -n ${name} "$@"
-            '';
+          prepare-dual-migration = import ../lib/prepare-dual-migration.nix {
+            inherit pkgs;
+            hostName = name;
+            hostCfg = cfg';
+            add-sops-cfg = import ../lib/add-sops-cfg.nix { inherit pkgs; };
           };
 
-          # Phase 2: Install runtime keys on existing hosts  
           install-runtime-key = import ../lib/install-runtime-key.nix {
             inherit pkgs;
             hostName = name;
@@ -504,7 +496,6 @@ in
             nixosCfg = hostCfg;
           };
 
-          # Rotate initrd SSH key with secure partition recreation
           rotate-initrd-key = import ../lib/rotate-initrd-key.nix {
             inherit pkgs;
             hostName = name;

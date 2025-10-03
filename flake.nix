@@ -29,15 +29,14 @@
     };
   };
 
-  outputs = inputs @ {
+  outputs = inputs@{
     self,
     flake-parts,
     nixos-anywhere,
     nixos-facter-modules,
     nix-flake-tests,
     ...
-  }:
-    flake-parts.lib.mkFlake {inherit inputs;} {
+  }: flake-parts.lib.mkFlake {inherit inputs;} {
       systems = [
         "x86_64-linux"
         "aarch64-linux"
@@ -46,111 +45,105 @@
         "aarch64-darwin"
       ];
 
-      perSystem = {
-        self',
-        inputs',
-        pkgs,
-        system,
-        ...
-      }: {
-        packages = rec {
-          # Usage:
-          #  init [-h] [-y] [-s] [-v] [-p PATH]
-          #
-          # print help:
-          #  init -h
-          init = import ./lib/gen-initial.nix {
-            inherit pkgs gen-new-host sops-create-main-key sops-add-main-key;
-          };
-
-          add-sops-cfg = import ./lib/add-sops-cfg.nix {
-            inherit pkgs;
-          };
-
-          sops-create-main-key = import ./lib/sops-create-main-key.nix {
-            inherit pkgs;
-          };
-
-          sops-add-main-key = import ./lib/sops-add-main-key.nix {
-            inherit pkgs add-sops-cfg;
-          };
-
-          gen-new-host = import ./lib/gen-new-host.nix {
-            inherit pkgs add-sops-cfg;
-          };
-
-          prepare-dual-migration = import ./lib/prepare-dual-migration.nix {
-            inherit pkgs add-sops-cfg;
-          };
-
-          manualHtml = pkgs.callPackage ./docs {
-            inherit (inputs) nmdsrc;
-            skaraboxModules = [
-              ./modules/bootssh.nix
-              ./modules/configuration.nix
-              ./modules/disks.nix
-              ./modules/hotspot.nix
-            ];
-            beaconModules = [
-              ./modules/beacon.nix
-            ];
-            flakeModuleModules = [
-              ./flakeModules/default.nix
-              ./flakeModules/colmena.nix
-              ./flakeModules/deploy-rs.nix
-            ];
-            release = builtins.readFile ./VERSION;
-          };
+    perSystem = { self', inputs', pkgs, system, ... }: {
+      packages = rec {
+        # Usage:
+        #  init [-h] [-y] [-s] [-v] [-p PATH]
+        #
+        # print help:
+        #  init -h
+        init = import ./lib/gen-initial.nix {
+          inherit pkgs gen-new-host sops-create-main-key sops-add-main-key;
         };
 
-        checks = import ./tests {
-          inherit pkgs system nix-flake-tests;
+        add-sops-cfg = import ./lib/add-sops-cfg.nix {
+          inherit pkgs;
         };
 
-        # Used to experiment with ruamel library.
-        devShells.pythonShell = pkgs.mkShell {
-          packages = [
-            (pkgs.python3.withPackages (python-pkgs: [
-              python-pkgs.ruamel-yaml
-            ]))
+        sops-create-main-key = import ./lib/sops-create-main-key.nix {
+          inherit pkgs;
+        };
+
+        sops-add-main-key = import ./lib/sops-add-main-key.nix {
+          inherit pkgs add-sops-cfg;
+        };
+
+        gen-new-host = import ./lib/gen-new-host.nix {
+          inherit pkgs add-sops-cfg;
+        };
+
+        prepare-dual-migration = import ./lib/prepare-dual-migration.nix {
+          inherit pkgs add-sops-cfg;
+        };
+
+        manualHtml = pkgs.callPackage ./docs {
+          inherit (inputs) nmdsrc;
+          skaraboxModules = [
+            ./modules/bootssh.nix
+            ./modules/configuration.nix
+            ./modules/disks.nix
+            ./modules/hotspot.nix
           ];
+          beaconModules = [
+            ./modules/beacon.nix
+          ];
+          flakeModuleModules = [
+            ./flakeModules/default.nix
+            ./flakeModules/colmena.nix
+            ./flakeModules/deploy-rs.nix
+          ];
+          release = builtins.readFile ./VERSION;
         };
       };
 
-      flake = {
-        lib = import ./lib/functions.nix;
+      checks = import ./tests {
+        inherit pkgs system nix-flake-tests;
+      };
 
-        skaraboxInputs = inputs;
+      # Used to experiment with ruamel library.
+      devShells.pythonShell = pkgs.mkShell {
+        packages = [
+          (pkgs.python3.withPackages (python-pkgs: [
+            python-pkgs.ruamel-yaml
+          ]))
+        ];
+      };
+    };
 
-        flakeModules.default = ./flakeModules/default.nix;
-        flakeModules.colmena = ./flakeModules/colmena.nix;
-        flakeModules.deploy-rs = ./flakeModules/deploy-rs.nix;
+    flake = {
+      lib = import ./lib/functions.nix;
 
-        templates = {
-          skarabox = {
-            path = ./template;
-            description = "Skarabox template";
-          };
+      skaraboxInputs = inputs;
 
-          default = self.templates.skarabox;
+      flakeModules.default = ./flakeModules/default.nix;
+      flakeModules.colmena = ./flakeModules/colmena.nix;
+      flakeModules.deploy-rs = ./flakeModules/deploy-rs.nix;
+
+      templates = {
+        skarabox = {
+          path = ./template;
+          description = "Skarabox template";
         };
 
-        nixosModules.skarabox = {
-          imports = [
-            nixos-anywhere.inputs.disko.nixosModules.disko
-            nixos-facter-modules.nixosModules.facter
-            ./modules/disks.nix
-            ./modules/bootssh.nix
-            ./modules/configuration.nix
-          ];
-        };
+        default = self.templates.skarabox;
+      };
 
-        nix-ci = {
-          cachix = {
-            name = "selfhostblocks";
-            public-key = "selfhostblocks.cachix.org-1:H5h6Uj188DObUJDbEbSAwc377uvcjSFOfpxyCFP7cVs=";
-          };
+      nixosModules.skarabox = {
+        imports = [
+          nixos-anywhere.inputs.disko.nixosModules.disko
+          nixos-facter-modules.nixosModules.facter
+          ./modules/disks.nix
+          ./modules/bootssh.nix
+          ./modules/configuration.nix
+        ];
+      };
+
+      nix-ci = {
+        cachix = {
+          name = "selfhostblocks";
+          public-key = "selfhostblocks.cachix.org-1:H5h6Uj188DObUJDbEbSAwc377uvcjSFOfpxyCFP7cVs=";
         };
       };
     };
+  };
 }

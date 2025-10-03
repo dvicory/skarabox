@@ -1,11 +1,11 @@
-# Dual SSH Keys in Skarabox
+# Dual Host Keys in Skarabox
 
 ## Implementation Status
 
 **✅ COMPLETED:**
-- Core dual SSH key architecture integrated into skarabox modules
+- Core dual host key architecture integrated into skarabox modules
 - Auto-detection system (detects dual mode from SOPS configuration)
-- New hosts default to dual SSH keys with secure SOPS encryption
+- New hosts default to dual host keys with secure SOPS encryption
 - Backward compatibility maintained for existing hosts
 - FlakeModule enhancements for dual key support
 - Runtime key installation during deployment
@@ -16,7 +16,7 @@
 - **Process streamlining**: Removed redundant `enable-dual-mode` script for cleaner migration
 
 **✅ PHASE 1 COMPLETE - Basic Implementation:**
-- ✅ Dual SSH key generation as default
+- ✅ Dual host key generation as default
 - ✅ Auto-detection logic working
 - ✅ SOPS integration with runtime key
 - ✅ Basic validation framework in place
@@ -47,8 +47,8 @@
 - ✅ Removed old deployment-based rotation (simplified workflow)
 
 **🎯 PRODUCTION READY:**
-The dual SSH key architecture is now production-ready with:
-- **Secure by default**: New hosts use dual keys automatically
+The dual host key architecture is now production-ready with:
+- **Secure by default**: New hosts use dual host keys automatically
 - **Migration path**: Existing hosts can safely upgrade using documented process
 - **Validated security**: Physical attacks blocked, secrets remain protected
 - **Forensic-proof rotation**: Boot partition wipe prevents key recovery
@@ -56,15 +56,15 @@ The dual SSH key architecture is now production-ready with:
 
 ## Overview
 
-**Skarabox now supports dual SSH keys** for enhanced security while maintaining full backward compatibility. The system automatically detects which architecture to use based on your SOPS configuration.
+**Skarabox now supports dual host keys** for enhanced security while maintaining full backward compatibility. The system automatically detects which architecture to use based on your SOPS configuration.
 
 ### Default Behavior for New Hosts
 
 When you run `nix run skarabox#gen-new-host -- -n hostname`, you automatically get:
 
-**🔐 Two SSH Keys:**
+**🔐 Two Host Keys:**
 - **Initrd Key** (`/boot/host_key`): Vulnerable storage, limited to boot unlock only
-- **Runtime Key** (`/persist/ssh/runtime_host_key`): Secure encrypted storage, used for administration and SOPS
+- **Runtime Key** (`/persist/etc/ssh/ssh_host_ed25519_key`): Secure encrypted storage, used for administration and SOPS
 
 **🔒 Secure by Default:**
 - SOPS secrets are encrypted with the **secure runtime key**
@@ -74,13 +74,13 @@ When you run `nix run skarabox#gen-new-host -- -n hostname`, you automatically g
 
 ### Architecture Auto-Detection
 
-The system detects dual SSH key mode automatically:
-- **Dual Mode**: When SOPS uses `/persist/ssh/runtime_host_key`
+The system detects dual host key mode automatically:
+- **Dual Mode**: When SOPS uses `/persist/etc/ssh/ssh_host_ed25519_key`
 - **Single Mode**: When SOPS uses `/boot/host_key` (legacy)
 
 No manual configuration required - just configure SOPS appropriately.
 
-### Legacy Single Key Mode
+### Legacy Single Host Key Mode
 
 For backward compatibility or special requirements:
 ```bash
@@ -90,7 +90,7 @@ nix run skarabox#gen-new-host -- --single-key -n hostname
 
 ## Security Enhancement
 
-| Aspect | Single Key (Legacy) | Dual Keys (Default) |
+| Aspect | Single Host Key (Legacy) | Dual Host Keys (Default) |
 |--------|-------------------|-------------------|
 | **Physical Access Risk** | Complete compromise | Boot unlock only |
 | **SOPS Secret Protection** | Unencrypted key | Encrypted storage |
@@ -105,7 +105,7 @@ nix run skarabox#gen-new-host -- --single-key -n hostname
 
 ✅ **Migration tooling is complete and production-ready.**
 
-The migration process is documented in [normal-operations.md](normal-operations.md#migrate-dual-keys) and uses:
+The migration process is documented in [normal-operations.md](normal-operations.md#migrate-dual-host-keys) and uses:
 - `nix run .#myhost-prepare-dual-migration` - Generate runtime keys and update SOPS
 - `nix run .#myhost-install-runtime-key` - Install keys on target host
 - Manual configuration update to enable dual mode
@@ -113,12 +113,12 @@ The migration process is documented in [normal-operations.md](normal-operations.
 
 ### Migration Overview
 
-The system auto-detects dual SSH key mode based on your SOPS configuration. When SOPS is configured to use `/persist/ssh/runtime_host_key`, dual mode is automatically enabled. 
+The system auto-detects dual host key mode based on your SOPS configuration. When SOPS is configured to use `/persist/etc/ssh/ssh_host_ed25519_key`, dual mode is automatically enabled. 
 
-#### Phase 1: Generate Dual Keys (Local Only)
+#### Phase 1: Generate Dual Host Keys (Local Only)
 
 ```bash
-# 1. Generate runtime SSH key pair in host directory
+# 1. Generate runtime host key pair in host directory
 ssh-keygen -t ed25519 -N "" -f ./myhost/runtime_host_key
 
 # 2. Convert runtime key to age format for SOPS
@@ -145,15 +145,15 @@ Deploy a configuration that installs the runtime key but keeps existing SSH beha
 # In myhost/configuration.nix - add runtime key installation
 system.activationScripts.install-runtime-key = {
   text = ''
-    if [ ! -f /persist/ssh/runtime_host_key ]; then
-      mkdir -p /persist/ssh
-      chmod 700 /persist/ssh
-      echo "Installing runtime SSH key..."
-      cp ${./runtime_host_key} /persist/ssh/runtime_host_key
-      cp ${./runtime_host_key.pub} /persist/ssh/runtime_host_key.pub
-      chmod 600 /persist/ssh/runtime_host_key
-      chmod 644 /persist/ssh/runtime_host_key.pub
-      echo "Runtime SSH key installed successfully"
+    if [ ! -f /persist/etc/ssh/ssh_host_ed25519_key ]; then
+      mkdir -p /persist/etc/ssh
+      chmod 755 /persist/etc/ssh
+      echo "Installing runtime host key..."
+      cp ${./runtime_host_key} /persist/etc/ssh/ssh_host_ed25519_key
+      cp ${./runtime_host_key.pub} /persist/etc/ssh/ssh_host_ed25519_key.pub
+      chmod 600 /persist/etc/ssh/ssh_host_ed25519_key
+      chmod 644 /persist/etc/ssh/ssh_host_ed25519_key.pub
+      echo "Runtime host key installed successfully"
     fi
   '';
   deps = ["users"];
@@ -184,7 +184,7 @@ Deploy configuration that installs the runtime key but keeps existing behavior:
 ```nix
 # In myhost/configuration.nix
 {
-  # Add dual SSH keys module (not yet enabled)
+  # Add dual host keys module (not yet enabled)
   imports = [
     # ... existing imports
   ];
@@ -192,14 +192,14 @@ Deploy configuration that installs the runtime key but keeps existing behavior:
   # Install runtime key via activation script
   system.activationScripts.install-runtime-key = {
     text = ''
-      if [ ! -f /persist/ssh/runtime_host_key ]; then
-        mkdir -p /persist/ssh
-        chmod 700 /persist/ssh
-        echo "Installing runtime SSH key..."
-        install -m 600 ${./runtime_host_key} /persist/ssh/runtime_host_key
-        install -m 644 ${./runtime_host_key.pub} /persist/ssh/runtime_host_key.pub
-        echo "Runtime SSH key installed"
-      fi
+      # Install runtime key to persist partition
+      if [ -f runtime_host_key ]; then
+        echo "Installing runtime host key..."
+        ssh -o StrictHostKeyChecking=accept-new \
+            -o UserKnownHostsFile="$known_hosts_file" \
+            -i ssh -p "$ssh_port" root@"$ip" \
+            "mkdir -p /persist/etc/ssh && chmod 755 /persist/etc/ssh"
+        echo "Runtime host key installed successfully"
     '';
     deps = ["users"];
   };
@@ -208,14 +208,14 @@ Deploy configuration that installs the runtime key but keeps existing behavior:
 }
 ```
 
-#### Phase 3: Enable Dual SSH Architecture  
+#### Phase 3: Enable Dual Host Key Architecture  
 
 After confirming runtime key is installed, update SOPS configuration:
 
 ```nix
 # In myhost/configuration.nix - switch SOPS to runtime key
 sops.age = {
-  sshKeyPaths = [ "/persist/ssh/runtime_host_key" ];  # Switch from /boot/host_key
+  sshKeyPaths = [ "/persist/etc/ssh/ssh_host_ed25519_key" ];  # Switch from /boot/host_key
 };
 
 # Remove manual installation script (no longer needed)
@@ -274,11 +274,11 @@ skarabox.hosts.myhost = {
 # Keep it for existing secrets during transition period
 ```
 
-## New Hosts with Dual Keys
+## New Hosts with Dual Host Keys
 
 ```bash
-# Generate new host with dual SSH keys
-nix run .#gen-new-host -- --dual-keys -n newhost
+# Generate new host with dual host keys
+nix run .#gen-new-host -- --dual-host-keys -n newhost
 
 # Configure flake
 # In flake.nix:
@@ -287,7 +287,7 @@ skarabox.hosts.newhost = {
   runtimeHostKeyPub = ./newhost/runtime_host_key.pub;  # Dual key mode
 };
 
-# Deploy with dual keys from the start
+# Deploy with dual host keys from the start
 nix run .#newhost-install-on-beacon
 ```
 
@@ -370,15 +370,15 @@ ssh-keygen -R your.server.ip  # Clear cached key
 ssh-keygen -R [your.server.ip]:2222  # Clear boot key cache
 ```
 
-### SOPS decryption fails after enabling dual keys
+### SOPS decryption fails after enabling dual host keys
 
 **Cause**: SOPS trying to use old initrd key
 **Solutions**:
-1. Verify runtime key is installed: `ssh user@host "sudo ls -la /persist/ssh/"`
+1. Verify runtime key is installed: `ssh user@host "sudo ls -la /persist/etc/ssh/"`
 2. Check sops.age.sshKeyPaths points to runtime key
 3. Verify SOPS secrets encrypted with runtime key Age public key
 
-### Cannot SSH to host after enabling dual keys
+### Cannot SSH to host after enabling dual host keys
 
 **Cause**: Runtime SSH using new key but known_hosts has old fingerprint
 **Solution**: Regenerate known_hosts with dual key format
@@ -388,7 +388,7 @@ ssh-keygen -R [your.server.ip]:2222  # Clear boot key cache
 **Cause**: Runtime key not properly installed or wrong permissions
 **Solution**: Check runtime key installation and permissions:
 ```bash
-ssh user@host "sudo ls -la /persist/ssh/"
+ssh user@host "sudo ls -la /persist/etc/ssh/"
 # Should show: runtime_host_key (600) and runtime_host_key.pub (644)
 ```
 
@@ -396,23 +396,25 @@ ssh user@host "sudo ls -la /persist/ssh/"
 
 ### Architecture Overview
 
-The dual SSH key implementation extends skarabox's existing modules rather than adding separate components:
+The dual host key implementation extends skarabox's existing modules rather than adding separate components:
 
 **Enhanced Modules:**
 - `modules/configuration.nix` - Auto-detects dual mode from SOPS config, manages SSH service
 - `modules/bootssh.nix` - Configures initrd SSH for boot unlock
 - `flakeModules/default.nix` - Generates dual-aware known_hosts, deployment commands, and rotation tools
-- `lib/gen-new-host.nix` - Creates dual keys by default, --single-key fallback
+- `lib/gen-new-host.nix` - Creates dual host keys by default, --single-key fallback
 - `lib/rotate-initrd-key.nix` - Secure initrd key rotation with forensic-proof deletion
 
 **Auto-Detection Logic:**
 ```nix
-isDualSshMode = cfg.useDualSshKeys || (
+isDualHostMode = cfg.useDualHostKeys || (
   config.sops ? age && 
   config.sops.age ? sshKeyPaths && 
-  builtins.elem cfg.runtimeSshKeyPath config.sops.age.sshKeyPaths
+  builtins.any (path: lib.hasInfix "/persist/etc/ssh/" path) config.sops.age.sshKeyPaths
 );
 ```
+
+The runtime host key path is automatically extracted from `sops.age.sshKeyPaths` - no separate configuration needed!
 
 ### Key Management
 
@@ -423,7 +425,7 @@ isDualSshMode = cfg.useDualSshKeys || (
 - Rotated via `${hostname}-rotate-initrd-key` tool (forensic-proof deletion)
 - Managed outside NixOS (external lifecycle)
 
-**Runtime Key (`/persist/ssh/runtime_host_key`):**
+**Runtime Key (`/persist/etc/ssh/ssh_host_ed25519_key`):**
 - Generated by `gen-new-host` 
 - Deployed via `install-on-beacon --extra-files`
 - Installed via system activation script
@@ -448,8 +450,8 @@ isDualSshMode = cfg.useDualSshKeys || (
 
 ### Completed Infrastructure ✅
 
-The core dual SSH key architecture is **functionally complete**:
-- ✅ New hosts default to secure dual SSH keys  
+The core dual host key architecture is **functionally complete**:
+- ✅ New hosts default to secure dual host keys  
 - ✅ Existing hosts remain fully compatible
 - ✅ Auto-detection system works reliably
 - ✅ Security model properly isolates concerns
@@ -471,17 +473,17 @@ The implementation is **production-ready** for both new and existing hosts.
 ### Phase 1: Core Implementation ✅ COMPLETE
 **Status: COMPLETE | Completed: September 2025 | Priority: Critical**
 
-**Objective:** Implement dual SSH key architecture with security-by-default
+**Objective:** Implement dual host key architecture with security-by-default
 
 **Tasks:**
 1. **Core Architecture Implementation** ✅
    - ✅ Enhanced modules/configuration.nix with dual key auto-detection
    - ✅ Updated modules/bootssh.nix with initrd key rotation support
-   - ✅ Modified lib/gen-new-host.nix to generate dual keys by default
+   - ✅ Modified lib/gen-new-host.nix to generate dual host keys by default
    - ✅ Enhanced flakeModules/default.nix with dual key support
 
 2. **Security-by-Default Implementation** ✅
-   - ✅ New hosts automatically use dual SSH keys
+   - ✅ New hosts automatically use dual host keys
    - ✅ SOPS configured to use secure runtime key by default
    - ✅ Auto-detection based on SOPS configuration paths
    - ✅ Backward compatibility maintained for existing hosts
@@ -493,7 +495,7 @@ The implementation is **production-ready** for both new and existing hosts.
    - ✅ Core functionality testing (dual/single modes)
 
 **Success Criteria:** ✅ ALL COMPLETE
-- ✅ New hosts with dual SSH keys work flawlessly  
+- ✅ New hosts with dual host keys work flawlessly  
 - ✅ SOPS secrets protected by runtime key (physical attack mitigation proven)
 - ✅ Auto-detection system working correctly
 - ✅ Backward compatibility maintained
@@ -567,7 +569,7 @@ The implementation is **production-ready** for both new and existing hosts.
 
 **New Host Generation:** 
 ```bash
-# Creates dual SSH keys by default with secure SOPS configuration
+# Creates dual host keys by default with secure SOPS configuration
 nix run skarabox#gen-new-host -- -n myhost
 ```
 
@@ -597,16 +599,16 @@ nix run skarabox#gen-new-host -- -n myhost
 **For New Hosts:** ✅ **PRODUCTION READY**
 ```bash
 nix run skarabox#gen-new-host -- -n myhost
-# You get dual SSH keys with secure SOPS automatically!
+# You get dual host keys with secure SOPS automatically!
 ```
 
 **For Existing Hosts:** ✅ **PRODUCTION READY**
-See [normal-operations.md](normal-operations.md#migrate-dual-keys) for the complete migration guide.
+See [normal-operations.md](normal-operations.md#migrate-dual-host-keys) for the complete migration guide.
 **Solution**: Check runtime key exists and has correct permissions (600)
 
 ## Manual Rollback (If Needed)
 
-If you need to revert to single SSH key mode, simply change the SOPS configuration back:
+If you need to revert to single host key mode, simply change the SOPS configuration back:
 
 ```nix
 # In myskarabox/configuration.nix
@@ -621,7 +623,7 @@ $ nix run .#myskarabox-gen-knownhosts-file
 $ nix run .#deploy-rs  # or colmena
 ```
 
-The system auto-detects the change and reverts to single-key mode. Your runtime key remains in `/persist/ssh/` but won't be used.
+The system auto-detects the change and reverts to single-key mode. Your runtime key remains in `/persist/etc/ssh/` but won't be used.
 
 ## Security Benefits
 
@@ -635,7 +637,7 @@ The system auto-detects the change and reverts to single-key mode. Your runtime 
 
 ### ✅ IMPLEMENTATION COMPLETE
 
-The dual SSH key architecture is **production-ready** with all core functionality implemented and tested:
+The dual host key architecture is **production-ready** with all core functionality implemented and tested:
 
 **Core Architecture:** 
 - ✅ Dual key generation and management
@@ -657,7 +659,7 @@ The dual SSH key architecture is **production-ready** with all core functionalit
 
 ### 🎯 READY FOR PRODUCTION USE
 
-**For new hosts:** Dual SSH keys are enabled by default with `gen-new-host`  
+**For new hosts:** Dual host keys are enabled by default with `gen-new-host`  
 **For existing hosts:** Follow the migration guide in `normal-operations.md`  
 **Security improvement:** Physical attacks are now blocked - stolen boot keys cannot decrypt SOPS secrets
 

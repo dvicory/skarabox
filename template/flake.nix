@@ -19,60 +19,73 @@
     sops-nix.url = "github:Mic92/sops-nix";
   };
 
-  outputs = inputs@{ self, nixpkgs, flake-parts, ... }: flake-parts.lib.mkFlake { inherit inputs; } ({ config, ... }: {
-    systems = [
-      "x86_64-linux"
-      "aarch64-linux"
-      # Darwin systems are supported but not as hosts to deploy to.
-      "x86_64-darwin"
-      "aarch64-darwin"
-    ];
+  outputs = inputs @ {
+    self,
+    nixpkgs,
+    flake-parts,
+    ...
+  }:
+    flake-parts.lib.mkFlake {inherit inputs;} ({config, ...}: {
+      systems = [
+        "x86_64-linux"
+        "aarch64-linux"
+        # Darwin systems are supported but not as hosts to deploy to.
+        "x86_64-darwin"
+        "aarch64-darwin"
+      ];
 
-    imports = [
-      inputs.skarabox.flakeModules.default
-      # Only one of deploy-rs or colmena is required to deploy.
-      # You can comment the one you don't use and remove the corresponding input.
-      inputs.skarabox.flakeModules.deploy-rs
-      inputs.skarabox.flakeModules.colmena
-    ];
+      imports = [
+        inputs.skarabox.flakeModules.default
+        # Only one of deploy-rs or colmena is required to deploy.
+        # You can comment the one you don't use and remove the corresponding input.
+        inputs.skarabox.flakeModules.deploy-rs
+        inputs.skarabox.flakeModules.colmena
+      ];
 
-    skarabox.hosts = {
-      myskarabox = {
-        # Comment this line to use nixpkgs as the input instead of SelfHostBlocks.
-        nixpkgs = inputs.selfhostblocks.lib.${config.skarabox.hosts.myskarabox.system}.patchedNixpkgs;
-        system = ./myskarabox/system;
-        hostKeyPub = ./myskarabox/host_key.pub;
-        ip = ./myskarabox/ip;
-        sshAuthorizedKey = ./myskarabox/ssh.pub;
-        knownHosts = ./myskarabox/known_hosts;
-
-        modules = [
-          inputs.sops-nix.nixosModules.default
-          self.nixosModules.myskarabox
-        ];
-        extraBeaconModules = [
-          {
-            # Add more utilities
-            #
-            # environment.systemPackages = [
-            #   pkgs.tmux
-            #   pkgs.htop
-            #   pkgs.glances
-            #   pkgs.iotop
-            # ];
-          }
-        ];
-      };
-    };
-
-    flake = {
-      nixosModules = {
+      skarabox.hosts = {
         myskarabox = {
-          imports = [
-            ./myskarabox/configuration.nix
+          # Comment this line to use nixpkgs as the input instead of SelfHostBlocks.
+          nixpkgs = inputs.selfhostblocks.lib.${config.skarabox.hosts.myskarabox.system}.patchedNixpkgs;
+          system = ./myskarabox/system;
+          hostKeyPub = ./myskarabox/host_key.pub;
+
+          # Dual host key mode (default for new hosts - enhanced security)
+          runtimeHostKeyPub = ./myskarabox/runtime_host_key.pub;
+
+          # Single host key mode (legacy - less secure)
+          # For hosts created with --single-key flag, comment out runtimeHostKeyPub above
+
+          ip = ./myskarabox/ip;
+          sshAuthorizedKey = ./myskarabox/ssh.pub;
+          knownHosts = ./myskarabox/known_hosts;
+
+          modules = [
+            inputs.sops-nix.nixosModules.default
+            self.nixosModules.myskarabox
+          ];
+          extraBeaconModules = [
+            {
+              # Add more utilities
+              #
+              # environment.systemPackages = [
+              #   pkgs.tmux
+              #   pkgs.htop
+              #   pkgs.glances
+              #   pkgs.iotop
+              # ];
+            }
           ];
         };
       };
-    };
-  });
+
+      flake = {
+        nixosModules = {
+          myskarabox = {
+            imports = [
+              ./myskarabox/configuration.nix
+            ];
+          };
+        };
+      };
+    });
 }

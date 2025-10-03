@@ -79,13 +79,13 @@ All commands are prefixed by the hostname, allowing to handle multiple hosts.
 
    and copy needed config in [flake.nix][].
 
-## Migrate to dual SSH keys {#migrate-dual-keys}
+## Migrate to dual host keys {#migrate-dual-keys}
 
    ::: {.warning}
-   **Security Warning:** Single SSH key hosts are vulnerable to physical attacks. If someone gains physical access to your server, they can extract the `/boot/host_key` and decrypt all your secrets (passwords, API keys, etc.). Migrate to dual keys to safeguard your user data at rest.
+   **Security Warning:** Single host key hosts are vulnerable to physical attacks. If someone gains physical access to your server, they can extract the `/boot/host_key` and decrypt all your secrets (passwords, API keys, etc.). Migrate to dual host keys to safeguard your user data at rest.
    :::
 
-   Upgrade existing hosts from single SSH key to dual SSH key architecture. This separates the initrd key from your administrative secrets, protecting SOPS-encrypted data from physical attacks. **Note:** New hosts created with `gen-new-host` use dual keys by default.
+   Upgrade existing hosts from single host key to dual host key architecture. This separates the initrd key from your administrative secrets, protecting SOPS-encrypted data from physical attacks. **Note:** New hosts created with `gen-new-host` use dual host keys by default.
 
    ```bash
    $ nix run .#myskarabox-prepare-dual-migration  # Generate runtime keys & update SOPS
@@ -95,11 +95,11 @@ All commands are prefixed by the hostname, allowing to handle multiple hosts.
    Update `myskarabox/configuration.nix` to switch SOPS to runtime key:
    ```nix
    sops.age.sshKeyPaths = [
-     "/persist/ssh/runtime_host_key"   # Switch from /boot/host_key
+     "/persist/etc/ssh/ssh_host_ed25519_key"   # Switch from /boot/host_key
    ];
    ```
    
-   Update `flake.nix` to enable dual key mode:
+   Update `flake.nix` to enable dual host key mode:
    ```nix
    skarabox.hosts.myskarabox = {
      # ... existing config
@@ -109,8 +109,8 @@ All commands are prefixed by the hostname, allowing to handle multiple hosts.
    
    Then regenerate known_hosts, deploy, and cleanup:
    ```bash
-   $ nix run .#myskarabox-gen-knownhosts-file  # Update for dual keys
-   $ nix run .#deploy-rs                       # Apply dual key config
+   $ nix run .#myskarabox-gen-knownhosts-file  # Update for dual host keys
+   $ nix run .#deploy-rs                       # Apply dual host key config
    $ age_key=$(nix shell nixpkgs#ssh-to-age -c ssh-to-age < myskarabox/host_key.pub)
    $ nix run .#sops -- -r -i --rm-age "$age_key" myskarabox/secrets.yaml
    ```
@@ -119,7 +119,7 @@ All commands are prefixed by the hostname, allowing to handle multiple hosts.
 
 ## Rotate host key {#rotate-host-key}
 
-   **For single SSH key hosts (legacy):**
+   **For single host key hosts (legacy):**
    ```bash
    $ ssh-keygen -f ./myskarabox/host_key
    $ nix run .#add-sops-cfg -- -o .sops.yaml alias myskarabox $(ssh-to-age -i ./myskarabox/host_key.pub)
@@ -128,17 +128,16 @@ All commands are prefixed by the hostname, allowing to handle multiple hosts.
    $ nix run .#deploy-rs
    ```
 
-   **For dual SSH key hosts:**
+   **For dual host key hosts:**
    ```bash
    # Rotate initrd key (boot unlock only - uses secure block-level wipe)
    $ ssh-keygen -t ed25519 -N "" -f ./myskarabox/host_key
-   $ # Update flake.nix to reference new key (hostKeyPub = ./myskarabox/host_key.pub)
    $ nix run .#myskarabox-rotate-initrd-key  # Securely wipes boot partition
    $ nix run .#myskarabox-gen-knownhosts-file
-   $ # Test initrd SSH: ssh -p $(cat myskarabox/ssh_boot_port) root@$(cat myskarabox/ip)
-   $ # Reboot to activate: ssh $(cat myskarabox/ip) sudo reboot
-   
-   # Rotate runtime key (SOPS secrets - only if compromised)
+   ```
+
+   **Rotate runtime key** (SOPS secrets - only if compromised):
+   ```bash
    $ ssh-keygen -t ed25519 -N "" -f ./myskarabox/runtime_host_key
    $ nix run .#add-sops-cfg -- -o .sops.yaml alias myskarabox_runtime $(ssh-to-age -i ./myskarabox/runtime_host_key.pub)
    $ nix run .#sops -- updatekeys ./myskarabox/secrets.yaml

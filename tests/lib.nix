@@ -1,27 +1,29 @@
-{
-  pkgs,
-  ...
-}:
-let
+{pkgs, ...}: let
   add-sops-cfg = pkgs.callPackage ../lib/add-sops-cfg.nix {};
 
   exec = {
     name,
     cmd,
-    init ? ""
-  }: builtins.readFile ((pkgs.callPackage ({ runCommand }: runCommand name {
-    nativeBuildInputs = [
-      add-sops-cfg
-    ];
-  } (let
-    initFile = pkgs.writeText "init-sops" init;
-  in ''
-    mkdir $out
-    ${if init != "" then "cat ${initFile} > $out/.sops.yaml" else ""}
-    add-sops-cfg -o $out/.sops.yaml ${cmd}
-  '')) {}) + "/.sops.yaml");
-in
-{
+    init ? "",
+  }:
+    builtins.readFile ((pkgs.callPackage ({runCommand}:
+      runCommand name {
+        nativeBuildInputs = [
+          add-sops-cfg
+        ];
+      } (let
+        initFile = pkgs.writeText "init-sops" init;
+      in ''
+        mkdir $out
+        ${
+          if init != ""
+          then "cat ${initFile} > $out/.sops.yaml"
+          else ""
+        }
+        add-sops-cfg -o $out/.sops.yaml ${cmd}
+      '')) {})
+    + "/.sops.yaml");
+in {
   testAddSopsCfg_new_alias = {
     expected = ''
       keys:
@@ -124,7 +126,7 @@ in
         key_groups:
         - age:
           - *a
-      '';
+    '';
 
     expr = exec {
       name = "testAddSopsCfg_append";
@@ -136,7 +138,7 @@ in
           key_groups:
           - age:
             - *a
-        '';
+      '';
       cmd = "path-regex a b/b.yaml$";
     };
   };
@@ -145,14 +147,14 @@ in
     expected = ''
       keys:
       - &a OTHERSOPSKEY
-      '';
+    '';
 
     expr = exec {
       name = "testAddSopsCfg_replace";
       init = ''
         keys:
         - &a ASOPSKEY
-        '';
+      '';
       cmd = "alias a OTHERSOPSKEY";
     };
   };
@@ -171,7 +173,7 @@ in
         key_groups:
         - age:
           - *b
-      '';
+    '';
 
     expr = exec {
       name = "testAddSopsCfg_replace";
@@ -188,47 +190,49 @@ in
           key_groups:
           - age:
             - *b
-        '';
+      '';
       cmd = "alias a OTHERSOPSKEY";
     };
   };
 
-  # Test dual SSH key mode configuration generation (default)
+  # Test dual host key mode configuration generation (default)
   testGenNewHost_dualMode = {
     expected = true;
-    expr = 
-      let
-        # Test the template processing logic directly
-        configTemplate = builtins.readFile ../template/myskarabox/configuration.nix;
-        hasDualKeyPath = builtins.match ".*persist/ssh/runtime_host_key.*" configTemplate != null;
-      in hasDualKeyPath;
+    expr = let
+      # Test the template processing logic directly
+      configTemplate = builtins.readFile ../template/myskarabox/configuration.nix;
+      hasDualHostKeyPath = builtins.match ".*persist/ssh/runtime_host_key.*" configTemplate != null;
+    in
+      hasDualHostKeyPath;
   };
 
   # Test single key mode detection logic from configuration.nix module
-  testDualKeyAutoDetection_single = {
+  testDualHostKeyAutoDetection_single = {
     expected = false;
-    expr =
-      let
-        # Test the auto-detection logic with single key SOPS config
-        testConfig = {
-          sops.age.sshKeyPaths = [ "/boot/host_key" ];
-        };
-        # This would be the logic from modules/configuration.nix
-        isDualMode = builtins.any (path: builtins.match ".*/persist/ssh/runtime_host_key.*" path != null) testConfig.sops.age.sshKeyPaths;
-      in isDualMode;
+    expr = let
+      # Test the auto-detection logic with single key SOPS config
+      testConfig = {
+        sops.age.sshKeyPaths = ["/boot/host_key"];
+      };
+      # This matches the actual logic from modules/configuration.nix
+      # Using builtins.match to check for OpenSSH standard path
+      isDualMode = builtins.any (path: builtins.match ".*/persist/etc/ssh/.*" path != null) testConfig.sops.age.sshKeyPaths;
+    in
+      isDualMode;
   };
 
-  # Test dual key mode detection logic from configuration.nix module  
-  testDualKeyAutoDetection_dual = {
+  # Test dual host key mode detection logic from configuration.nix module
+  testDualHostKeyAutoDetection_dual = {
     expected = true;
-    expr =
-      let
-        # Test the auto-detection logic with dual key SOPS config
-        testConfig = {
-          sops.age.sshKeyPaths = [ "/persist/ssh/runtime_host_key" ];
-        };
-        # This would be the logic from modules/configuration.nix
-        isDualMode = builtins.any (path: builtins.match ".*/persist/ssh/runtime_host_key.*" path != null) testConfig.sops.age.sshKeyPaths;
-      in isDualMode;
+    expr = let
+      # Test the auto-detection logic with dual key SOPS config (OpenSSH standard path)
+      testConfig = {
+        sops.age.sshKeyPaths = ["/persist/etc/ssh/ssh_host_ed25519_key"];
+      };
+      # This matches the actual logic from modules/configuration.nix
+      # Using builtins.match to check for OpenSSH standard path
+      isDualMode = builtins.any (path: builtins.match ".*/persist/etc/ssh/.*" path != null) testConfig.sops.age.sshKeyPaths;
+    in
+      isDualMode;
   };
 }
