@@ -14,30 +14,27 @@ pkgs.writeShellApplication {
   text = ''
     set -euo pipefail
 
-    host_name="${hostName}"
+    hostname="${hostName}"
     flake_root="."
 
     usage () {
       cat <<USAGE
-    Usage: $0 [-h] [-f FLAKE_ROOT]
+Usage: $0 [-h] [-f FLAKE_ROOT]
 
-      -h:            Shows this usage
-      -f FLAKE_ROOT: Root directory of the flake (default: current directory)
+  -h:            Shows this usage
+  -f FLAKE_ROOT: Root directory of the flake (default: current directory)
 
-    Phase 2 of dual host key migration for host: ${hostName}
+Prerequisites:
+  - Run: nix run .#${hostName}-prepare-dual-migration
+  - Runtime key files must exist: ${hostName}/runtime_host_key*
 
-    Prerequisites:
-      - Run: nix run .#${hostName}-prepare-dual-migration
-      - Runtime key files must exist: ${hostName}/runtime_host_key*
-      - Host must import skarabox modules
+What this does:
+  1. Validates prerequisites
+  2. Copies runtime keys to /tmp/ on target host
+  3. Shows deployment instructions for your normal workflow
+  4. Host remains in single-key mode (no behavior change)
 
-    What this does:
-      1. Validates prerequisites
-      2. Copies runtime keys to /tmp/ on target host
-      3. Shows deployment instructions for your normal workflow
-      4. Host remains in single-key mode (no behavior change)
-
-    Next step: Deploy, then run nix run .#${hostName}-enable-dual-mode
+Next step: Deploy, then run nix run .#${hostName}-enable-dual-mode
 USAGE
     }
 
@@ -66,9 +63,9 @@ USAGE
     shift $((OPTIND-1))
 
     # Validate prerequisites
-    echo "Validating prerequisites for $host_name..."
+    echo "Validating prerequisites for $hostname..."
 
-    host_dir="$flake_root/$host_name"
+    host_dir="$flake_root/$hostname"
     if [ ! -d "$host_dir" ]; then
       echo "Error: Host directory not found: $host_dir" >&2
       exit 1
@@ -79,7 +76,7 @@ USAGE
     
     if [ ! -f "$runtime_key" ] || [ ! -f "$runtime_key_pub" ]; then
       echo "Error: Runtime key not found. Run prepare-dual-migration first:" >&2
-      echo " nix run .#$host_name-prepare-dual-migration" >&2
+      echo " nix run .#$hostname-prepare-dual-migration" >&2
       exit 1
     fi
 
@@ -101,16 +98,16 @@ USAGE
       "$runtime_key" \
       "$ssh_user@$host_ip:/tmp/"
 
-    echo "Runtime key copied to /tmp/ on $host_name"
+    echo "Runtime key copied to /tmp/ on $hostname"
 
     # Instructions for deployment
     echo ""
     echo "Next: Deploy using your normal workflow to trigger installation"
     echo ""
     echo "Examples:"
-    echo " nix run .#colmena -- apply --on $host_name"
-    echo " nix run .#deploy-rs -- .#$host_name"
-    echo " nixos-rebuild switch --flake .#$host_name --target-host $ssh_user@$host_ip"
+    echo " nix run .#colmena -- apply --on $hostname"
+    echo " nix run .#deploy-rs -- .#$hostname"
+    echo " nixos-rebuild switch --flake .#$hostname --target-host $ssh_user@$host_ip"
     echo ""
     echo "The skarabox activation script will automatically detect the keys in /tmp/"
     echo "and install them to /persist/etc/ssh/ with proper permissions (OpenSSH standard)."
@@ -129,16 +126,17 @@ USAGE
     echo "Phase 2 setup complete - runtime keys installed"
     echo ""
     echo "Next steps to complete dual host key migration:"
-    echo "1. Update $host_name/configuration.nix:"
+    echo "1. Update $hostname/configuration.nix:"
     echo "  sops.age.sshKeyPaths = [ \"/persist/etc/ssh/ssh_host_ed25519_key\" ];"
     echo ""
-    echo "2. Regenerate known_hosts: nix run .#$host_name-gen-knownhosts-file"
+    echo "2. Regenerate known_hosts: nix run .#$hostname-gen-knownhosts-file"
     echo ""
     echo "3. Deploy: nix run .#deploy-rs (or colmena, etc.)"
     echo ""
-    echo "4. Remove boot key from SOPS:"
-    echo "  age_key=\$(nix shell nixpkgs#ssh-to-age -c ssh-to-age < $host_name/host_key.pub)"
-    echo "  nix run .#sops -- -r -i --rm-age \"\$age_key\" $host_name/secrets.yaml"
+    echo "4. Remove boot key from SOPS (now aliased as ''${hostname}_boot):"
+    echo "  age_key=\$(nix shell nixpkgs#ssh-to-age -c ssh-to-age < $hostname/host_key.pub)"
+    echo "  nix run .#sops -- -r -i --rm-age \"\$age_key\" $hostname/secrets.yaml"
+    echo "  # Or edit .sops.yaml to remove the ''${hostname}_boot alias"
     echo ""
     echo "See docs/normal-operations.md for complete migration guide"
   '';

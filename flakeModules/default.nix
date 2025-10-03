@@ -496,7 +496,7 @@ in
             nixosCfg = hostCfg;
           };
 
-          rotate-initrd-key = import ../lib/rotate-initrd-key.nix {
+          rotate-boot-key = import ../lib/rotate-boot-key.nix {
             inherit pkgs;
             hostName = name;
             hostCfg = cfg';
@@ -514,7 +514,7 @@ in
           "${name}-unlock" = unlock;
           "${name}-prepare-dual-migration" = prepare-dual-migration;
           "${name}-install-runtime-key" = install-runtime-key;
-          "${name}-rotate-initrd-key" = rotate-initrd-key;
+          "${name}-rotate-boot-key" = rotate-boot-key;
         };
     in {
       packages = let

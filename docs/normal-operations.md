@@ -85,7 +85,7 @@ All commands are prefixed by the hostname, allowing to handle multiple hosts.
    **Security Warning:** Single host key hosts are vulnerable to physical attacks. If someone gains physical access to your server, they can extract the `/boot/host_key` and decrypt all your secrets (passwords, API keys, etc.). Migrate to dual host keys to safeguard your user data at rest.
    :::
 
-   Upgrade existing hosts from single host key to dual host key architecture. This separates the initrd key from your administrative secrets, protecting SOPS-encrypted data from physical attacks. **Note:** New hosts created with `gen-new-host` use dual host keys by default.
+   Upgrade existing hosts from single host key to dual host key architecture. This separates the boot key from your administrative secrets, protecting SOPS-encrypted data from physical attacks. **Note:** New hosts created with `gen-new-host` use dual host keys by default.
 
    ```bash
    $ nix run .#myskarabox-prepare-dual-migration  # Generate runtime keys & update SOPS
@@ -111,10 +111,14 @@ All commands are prefixed by the hostname, allowing to handle multiple hosts.
    ```bash
    $ nix run .#myskarabox-gen-knownhosts-file  # Update for dual host keys
    $ nix run .#deploy-rs                       # Apply dual host key config
+
+   # Remove the boot key (now aliased as myskarabox_boot) from SOPS
    $ age_key=$(nix shell nixpkgs#ssh-to-age -c ssh-to-age < myskarabox/host_key.pub)
    $ nix run .#sops -- -r -i --rm-age "$age_key" myskarabox/secrets.yaml
    ```
-   
+
+   **Note:** The migration script renames your existing key to `myskarabox_boot` and adds the runtime key as `myskarabox` (primary). After successful migration, remove the `_boot` key from SOPS.
+
    **Important:** After migration, rotate the boot key (see below) to protect against git history attacks where old secrets could be decrypted with a stolen boot key.
 
 ## Rotate host key {#rotate-host-key}
@@ -130,9 +134,8 @@ All commands are prefixed by the hostname, allowing to handle multiple hosts.
 
    **For dual host key hosts:**
    ```bash
-   # Rotate initrd key (boot unlock only - uses secure block-level wipe)
-   $ ssh-keygen -t ed25519 -N "" -f ./myskarabox/host_key
-   $ nix run .#myskarabox-rotate-initrd-key  # Securely wipes boot partition
+   # Rotate boot key (boot unlock only - uses secure block-level wipe)
+   $ nix run .#myskarabox-rotate-boot-key  # Securely wipes boot partition
    $ nix run .#myskarabox-gen-knownhosts-file
    ```
 
