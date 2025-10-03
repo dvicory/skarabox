@@ -36,14 +36,14 @@
     nixos-facter-modules,
     nix-flake-tests,
     ...
-  }: flake-parts.lib.mkFlake {inherit inputs;} {
-      systems = [
-        "x86_64-linux"
-        "aarch64-linux"
-        # Darwin systems are supported but not as hosts to deploy to.
-        "x86_64-darwin"
-        "aarch64-darwin"
-      ];
+  }: flake-parts.lib.mkFlake { inherit inputs; } {
+    systems = [
+      "x86_64-linux"
+      "aarch64-linux"
+      # Darwin systems are supported but not as hosts to deploy to.
+      "x86_64-darwin"
+      "aarch64-darwin"
+    ];
 
     perSystem = { self', inputs', pkgs, system, ... }: {
       packages = rec {
