@@ -281,22 +281,6 @@ in
       "d /persist/etc/ssh 0755 root root -"
     ];
 
-    system.activationScripts.install-runtime-ssh-key = lib.mkIf isSeparatedMode {
-      text = ''
-        # Note: During nixos-anywhere installation, the runtime key is installed by disko's
-        # postMountHook before this activation script runs. This script is kept for
-        # manual installations or recovery scenarios where /tmp/runtime_host_key exists.
-        if [ -f /tmp/runtime_host_key ] && [ ! -f ${runtimeKeyPath} ]; then
-          echo "Skarabox: Installing runtime host key..."
-          mkdir -p $(dirname ${runtimeKeyPath})
-          install -D -m 600 /tmp/runtime_host_key ${runtimeKeyPath}
-          rm -f /tmp/runtime_host_key
-          echo "Skarabox: Runtime host key installed at ${runtimeKeyPath}"
-        fi
-      '';
-      deps = ["users"];  # Removed setupSecrets dependency - key must be in place before SOPS runs
-    };
-
     warnings = lib.optionals (!isSeparatedMode) [
       ''
         Skarabox: Using single-key architecture (vulnerable to physical access)
