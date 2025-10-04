@@ -410,7 +410,7 @@ in
                 mapAttrsToList mkTmpFile secrets;
 
               diskEncryptionOptions = let
-                mkOption = name: path: ''--disk-encryption-keys /tmp/${name} "$secret_file_${name}" '';
+                mkOption = name: path: ''--disk-encryption-keys /tmp/${name} "''$secret_file_${name}" '';
               in
                 mapAttrsToList mkOption secrets;
             in ''
