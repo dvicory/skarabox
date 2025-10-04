@@ -183,13 +183,18 @@ cat .sops.yaml
 
 **Decrypt secrets locally (testing):**
 ```bash
-# With boot key:
-age_key=$(nix shell nixpkgs#ssh-to-age -c ssh-to-age < <hostname>/host_key.pub)
-SOPS_AGE_KEY="$age_key" nix run .#sops -- -d <hostname>/secrets.yaml
+# IMPORTANT: Use PRIVATE keys, not public keys!
+# Run from /tmp to avoid falling back to sops.key file
+
+# With boot key (single-key mode only - will fail on separated-key):
+cd /tmp
+boot_age_key=$(nix shell nixpkgs#ssh-to-age -c ssh-to-age -private-key -i ~/path/to/<hostname>/host_key)
+SOPS_AGE_KEY="$boot_age_key" nix run ~/path/to/project#sops -- -d ~/path/to/<hostname>/secrets.yaml
 
 # With runtime key (separated-key mode):
-age_key=$(nix shell nixpkgs#ssh-to-age -c ssh-to-age < <hostname>/runtime_host_key.pub)
-SOPS_AGE_KEY="$age_key" nix run .#sops -- -d <hostname>/secrets.yaml
+cd /tmp
+runtime_age_key=$(nix shell nixpkgs#ssh-to-age -c ssh-to-age -private-key -i ~/path/to/<hostname>/runtime_host_key)
+SOPS_AGE_KEY="$runtime_age_key" nix run ~/path/to/project#sops -- -d ~/path/to/<hostname>/secrets.yaml
 ```
 
 ---
@@ -233,7 +238,12 @@ SOPS_AGE_KEY="$age_key" nix run .#sops -- -d <hostname>/secrets.yaml
 
 2. **Bootstrap new repository with separated-key host (default):**
    ```bash
+   # If starting fresh without existing flake.nix/.sops.yaml:
    nix run github:dvicory/skarabox/protected-sops-key#init -- -n freshsep
+   
+   # OR if you already have a project (flake.nix/.sops.yaml exist):
+   nix run github:dvicory/skarabox/protected-sops-key#gen-new-host -- -n freshsep
+   
    # Enter password when prompted
    # This will create freshsep/ with separated-key mode by default
    ```
@@ -254,9 +264,9 @@ SOPS_AGE_KEY="$age_key" nix run .#sops -- -d <hostname>/secrets.yaml
 4. **Verify SOPS configuration:**
    ```bash
    cat .sops.yaml | grep -A10 freshsep
-   # Expected: Both keys listed
-   # - freshsep_boot: <age_key> (boot key, aliased with '&')
-   # - freshsep: <age_key> (runtime key, primary - no '&' suffix)
+   # Expected: Only runtime key listed
+   # - freshsep: <age_key> (runtime key for SOPS)
+   # Note: Boot key is NOT in SOPS config (security feature)
    ```
 
 5. **Check flake.nix - verify runtimeHostKeyPub is configured:**
@@ -365,19 +375,34 @@ SOPS_AGE_KEY="$age_key" nix run .#sops -- -d <hostname>/secrets.yaml
 
 18. **🔒 SECURITY TEST: Verify boot key CANNOT decrypt secrets (CRITICAL):**
     ```bash
-    # On local machine, try to decrypt with boot key
-    age_key=$(nix shell nixpkgs#ssh-to-age -c ssh-to-age < freshsep/host_key.pub)
-    SOPS_AGE_KEY="$age_key" nix run .#sops -- -d freshsep/secrets.yaml
+    # IMPORTANT: Run from /tmp to avoid falling back to sops.key file
+    cd /tmp
+    
+    # Convert boot key PRIVATE key to age format and try to decrypt
+    boot_age_key=$(nix shell nixpkgs#ssh-to-age -c ssh-to-age -private-key -i ~/skarabox-qa-freshsep/freshsep/host_key)
+    SOPS_AGE_KEY="$boot_age_key" nix run ~/skarabox-qa-freshsep#sops -- -d ~/skarabox-qa-freshsep/freshsep/secrets.yaml
+    
     # Expected: FAILS with "no key could decrypt the data key"
     # This proves boot key (accessible from /boot) cannot compromise secrets
+    
+    # Return to work directory
+    cd ~/skarabox-qa-freshsep
     ```
 
 19. **✅ Verify runtime key CAN decrypt secrets:**
     ```bash
-    age_key=$(nix shell nixpkgs#ssh-to-age -c ssh-to-age < freshsep/runtime_host_key.pub)
-    SOPS_AGE_KEY="$age_key" nix run .#sops -- -d freshsep/secrets.yaml
+    # Convert runtime key PRIVATE key to age format and decrypt
+    runtime_age_key=$(nix shell nixpkgs#ssh-to-age -c ssh-to-age -private-key -i freshsep/runtime_host_key)
+    
+    # Run from /tmp to ensure we're only using the specified key
+    cd /tmp
+    SOPS_AGE_KEY="$runtime_age_key" nix run ~/skarabox-qa-freshsep#sops -- -d ~/skarabox-qa-freshsep/freshsep/secrets.yaml
+    
     # Expected: SUCCESS - secrets visible
     # This proves runtime key (in encrypted pool) works correctly
+    
+    # Return to work directory
+    cd ~/skarabox-qa-freshsep
     ```
 
 ### Phase 4: Reboot Persistence Test
@@ -559,11 +584,16 @@ SOPS_AGE_KEY="$age_key" nix run .#sops -- -d <hostname>/secrets.yaml
 
 17. **⚠️ VULNERABILITY TEST: Verify boot key CAN decrypt secrets:**
     ```bash
-    age_key=$(nix shell nixpkgs#ssh-to-age -c ssh-to-age < freshsingle/host_key.pub)
-    SOPS_AGE_KEY="$age_key" nix run .#sops -- -d freshsingle/secrets.yaml
+    # Run from /tmp to ensure clean test environment
+    cd /tmp
+    boot_age_key=$(nix shell nixpkgs#ssh-to-age -c ssh-to-age -private-key -i ~/skarabox-qa-freshsingle/freshsingle/host_key)
+    SOPS_AGE_KEY="$boot_age_key" nix run ~/skarabox-qa-freshsingle#sops -- -d ~/skarabox-qa-freshsingle/freshsingle/secrets.yaml
+    
     # Expected: SUCCESS (demonstrates vulnerability!)
     # In single-key mode, anyone with physical access to /boot
     # can extract host_key and decrypt all secrets
+    
+    cd ~/skarabox-qa-freshsingle
     ```
 
 **Expected Results:**
@@ -638,15 +668,20 @@ SOPS_AGE_KEY="$age_key" nix run .#sops -- -d <hostname>/secrets.yaml
 7. **Verify secrets re-encrypted:**
    ```bash
    # Both keys should be able to decrypt (during migration period)
-   age_key=$(nix shell nixpkgs#ssh-to-age -c ssh-to-age < freshsingle/host_key.pub)
-   export SOPS_AGE_KEY="$age_key"
-   nix run .#sops -- -d freshsingle/secrets.yaml
-   # Expected: SUCCESS (boot key still works)
+   # Run from /tmp for clean test environment
+   cd /tmp
    
-   age_key=$(nix shell nixpkgs#ssh-to-age -c ssh-to-age < freshsingle/runtime_host_key.pub)
-   export SOPS_AGE_KEY="$age_key"
-   nix run .#sops -- -d freshsingle/secrets.yaml
+   # Test boot key (use PRIVATE key)
+   boot_age_key=$(nix shell nixpkgs#ssh-to-age -c ssh-to-age -private-key -i ~/skarabox-qa-freshsingle/freshsingle/host_key)
+   SOPS_AGE_KEY="$boot_age_key" nix run ~/skarabox-qa-freshsingle#sops -- -d ~/skarabox-qa-freshsingle/freshsingle/secrets.yaml
+   # Expected: SUCCESS (boot key still works during migration)
+   
+   # Test runtime key (use PRIVATE key)
+   runtime_age_key=$(nix shell nixpkgs#ssh-to-age -c ssh-to-age -private-key -i ~/skarabox-qa-freshsingle/freshsingle/runtime_host_key)
+   SOPS_AGE_KEY="$runtime_age_key" nix run ~/skarabox-qa-freshsingle#sops -- -d ~/skarabox-qa-freshsingle/freshsingle/secrets.yaml
    # Expected: SUCCESS (runtime key works)
+   
+   cd ~/skarabox-qa-freshsingle
    ```
 
 ### Phase 3: Install Runtime Key
@@ -727,18 +762,21 @@ SOPS_AGE_KEY="$age_key" nix run .#sops -- -d <hostname>/secrets.yaml
 
 17. **Verify boot key can NO LONGER decrypt:**
     ```bash
-    age_key=$(nix shell nixpkgs#ssh-to-age -c ssh-to-age < freshsingle/host_key.pub)
-    export SOPS_AGE_KEY="$age_key"
-    nix run .#sops -- -d freshsingle/secrets.yaml
-    # Expected: FAILS - security achieved!
+    # Run from /tmp for clean test
+    cd /tmp
+    boot_age_key=$(nix shell nixpkgs#ssh-to-age -c ssh-to-age -private-key -i ~/skarabox-qa-freshsingle/freshsingle/host_key)
+    SOPS_AGE_KEY="$boot_age_key" nix run ~/skarabox-qa-freshsingle#sops -- -d ~/skarabox-qa-freshsingle/freshsingle/secrets.yaml
+    # Expected: FAILS with "no key could decrypt the data key" - security achieved!
+    cd ~/skarabox-qa-freshsingle
     ```
 
 18. **Verify runtime key STILL decrypts:**
     ```bash
-    age_key=$(nix shell nixpkgs#ssh-to-age -c ssh-to-age < freshsingle/runtime_host_key.pub)
-    export SOPS_AGE_KEY="$age_key"
-    nix run .#sops -- -d freshsingle/secrets.yaml
+    cd /tmp
+    runtime_age_key=$(nix shell nixpkgs#ssh-to-age -c ssh-to-age -private-key -i ~/skarabox-qa-freshsingle/freshsingle/runtime_host_key)
+    SOPS_AGE_KEY="$runtime_age_key" nix run ~/skarabox-qa-freshsingle#sops -- -d ~/skarabox-qa-freshsingle/freshsingle/secrets.yaml
     # Expected: SUCCESS
+    cd ~/skarabox-qa-freshsingle
     ```
 
 ### Phase 7: Rotate Boot Key (Security Hardening)
@@ -784,10 +822,11 @@ SOPS_AGE_KEY="$age_key" nix run .#sops -- -d <hostname>/secrets.yaml
 23. **Verify old boot key in git history is useless:**
     ```bash
     # Try to decrypt with old boot key (from backup or git history)
-    age_key=$(nix shell nixpkgs#ssh-to-age -c ssh-to-age < freshsingle/host_key.pub.backup)
-    export SOPS_AGE_KEY="$age_key"
-    nix run .#sops -- -d freshsingle/secrets.yaml
-    # Expected: FAILS - old key is worthless
+    cd /tmp
+    old_boot_age_key=$(nix shell nixpkgs#ssh-to-age -c ssh-to-age -private-key -i ~/skarabox-qa-freshsingle/freshsingle/host_key.backup)
+    SOPS_AGE_KEY="$old_boot_age_key" nix run ~/skarabox-qa-freshsingle#sops -- -d ~/skarabox-qa-freshsingle/freshsingle/secrets.yaml
+    # Expected: FAILS with "no key could decrypt the data key" - old key is worthless
+    cd ~/skarabox-qa-freshsingle
     
     # Try to SSH with old boot key
     ssh -i freshsingle/host_key.backup -p <boot_port> root@<ip>
@@ -939,10 +978,11 @@ SOPS_AGE_KEY="$age_key" nix run .#sops -- -d <hostname>/secrets.yaml
 
 10. **Verify old runtime key cannot decrypt:**
     ```bash
-    age_key=$(nix shell nixpkgs#ssh-to-age -c ssh-to-age < freshsep/runtime_host_key.pub.backup)
-    export SOPS_AGE_KEY="$age_key"
-    nix run .#sops -- -d freshsep/secrets.yaml
-    # Expected: FAILS
+    cd /tmp
+    old_runtime_age_key=$(nix shell nixpkgs#ssh-to-age -c ssh-to-age -private-key -i ~/skarabox-qa-freshsep/freshsep/runtime_host_key.backup)
+    SOPS_AGE_KEY="$old_runtime_age_key" nix run ~/skarabox-qa-freshsep#sops -- -d ~/skarabox-qa-freshsep/freshsep/secrets.yaml
+    # Expected: FAILS with "no key could decrypt the data key"
+    cd ~/skarabox-qa-freshsep
     ```
 
 **Expected Results:**
@@ -1282,9 +1322,11 @@ After completing each test:
 
 **SOPS fails to decrypt:**
 - Check which key you're using: `echo $SOPS_AGE_KEY`
-- Verify key format: `ssh-to-age < key.pub` should output age key
+- IMPORTANT: Use PRIVATE keys with `-private-key` flag, not public keys
+- Verify key conversion: `ssh-to-age -private-key -i key` (not `ssh-to-age < key.pub`)
+- Run from `/tmp` to avoid falling back to `sops.key` file
 - Check .sops.yaml has correct keys: `cat .sops.yaml`
-- Try with main SOPS key: `SOPS_AGE_KEY_FILE=sops.key nix run .#sops ...`
+- Compare key in .sops.yaml: `ssh-to-age < key.pub` gives public age key
 
 **Deploy fails:**
 - Check git status: `git status` (all changes must be committed)
