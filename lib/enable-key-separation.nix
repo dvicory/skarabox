@@ -130,19 +130,24 @@ USAGE
       cp "$sops_cfg" "$sops_cfg.bak.$(date +%s)"
       log "Backed up SOPS config to $sops_cfg.bak.*"
 
+      # Check if runtime key already exists in config
       if grep -q "$runtime_age_key" "$sops_cfg" 2>/dev/null; then
-        echo "Runtime key already in SOPS config"
+        echo "Runtime key already in SOPS config, skipping update"
         return 0
       fi
 
-      echo "Renaming boot host key alias to ''${hostname}_boot..."
+      # Check if boot key needs to be renamed
       if yq eval ".keys.[] | select(anchor == \"$hostname\")" "$sops_cfg" >/dev/null 2>&1; then
+        echo "Renaming boot host key alias to ''${hostname}_boot..."
         # Rename anchor and update all alias references
         yq eval -i \
           "(.keys.[] | select(anchor == \"$hostname\")) anchor = \"''${hostname}_boot\" |
            (.. | select(alias == \"$hostname\")) alias = \"''${hostname}_boot\"" \
           "$sops_cfg"
         log "Renamed existing key alias to ''${hostname}_boot"
+      elif yq eval ".keys.[] | select(anchor == \"''${hostname}_boot\")" "$sops_cfg" >/dev/null 2>&1; then
+        # Boot key already renamed
+        log "Boot key already renamed to ''${hostname}_boot"
       fi
 
       # Add runtime key as primary $hostname alias
