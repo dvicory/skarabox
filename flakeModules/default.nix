@@ -435,6 +435,7 @@ in
                 -p "$ssh_port" \
                 -f "$flake" \
                 -k ${cfg'.hostKeyPath} \
+                -- \
                 ${argsString} \
                 "$@"
             '');
