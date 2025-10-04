@@ -136,19 +136,37 @@ USAGE
         return 0
       fi
 
-      # Check if boot key needs to be renamed
-      if yq eval ".keys.[] | select(anchor == \"$hostname\")" "$sops_cfg" >/dev/null 2>&1; then
-        echo "Renaming boot host key alias to ''${hostname}_boot..."
-        # Rename anchor and update all alias references
-        yq eval -i \
-          "(.keys.[] | select(anchor == \"$hostname\")) anchor = \"''${hostname}_boot\" |
-           (.. | select(alias == \"$hostname\")) alias = \"''${hostname}_boot\"" \
-          "$sops_cfg"
-        log "Renamed existing key alias to ''${hostname}_boot"
-      elif yq eval ".keys.[] | select(anchor == \"''${hostname}_boot\")" "$sops_cfg" >/dev/null 2>&1; then
-        # Boot key already renamed
-        log "Boot key already renamed to ''${hostname}_boot"
+      # Check for inconsistent state - boot key already renamed but no runtime key
+      local boot_renamed_count
+      boot_renamed_count=$(yq eval "[.keys.[] | select(anchor == \"''${hostname}_boot\")] | length" "$sops_cfg" 2>/dev/null || echo "0")
+      if [ "$boot_renamed_count" -gt 0 ]; then
+        echo "Error: .sops.yaml is in an inconsistent state" >&2
+        echo "Found ''${hostname}_boot anchor but no runtime key" >&2
+        echo "" >&2
+        echo "This usually means a previous migration attempt was interrupted." >&2
+        echo "To fix:" >&2
+        echo "  1. Restore from backup: cp .sops.yaml.bak.* .sops.yaml" >&2
+        echo "  2. Or manually edit .sops.yaml to rename ''${hostname}_boot back to $hostname" >&2
+        echo "  3. Then re-run this script" >&2
+        exit 1
       fi
+
+      # Check if boot key exists with original name (expected state)
+      local boot_key_count
+      boot_key_count=$(yq eval "[.keys.[] | select(anchor == \"$hostname\")] | length" "$sops_cfg" 2>/dev/null || echo "0")
+      if [ "$boot_key_count" -eq 0 ]; then
+        echo "Error: Boot key with anchor '$hostname' not found in .sops.yaml" >&2
+        echo "Cannot proceed with migration - expected to find original boot key" >&2
+        exit 1
+      fi
+
+      # Everything looks good, rename the boot key
+      echo "Renaming boot host key alias to ''${hostname}_boot..."
+      yq eval -i \
+        "(.keys.[] | select(anchor == \"$hostname\")) anchor = \"''${hostname}_boot\" |
+         (.. | select(alias == \"$hostname\")) alias = \"''${hostname}_boot\"" \
+        "$sops_cfg"
+      log "Renamed existing key alias to ''${hostname}_boot"
 
       # Add runtime key as primary $hostname alias
       echo "Adding runtime host key as $hostname..."
