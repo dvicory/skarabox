@@ -309,13 +309,15 @@ in
     # To import the zpool automatically
     boot.zfs.extraPools = optionals cfg.dataPool.enable [ cfg.dataPool.name ];
 
-    # This is needed to make the /boot*/host_key available early
+    # This is needed to make the /boot*/host_key and /persist runtime key available early
     # enough to be able to decrypt the sops file on boot,
     # when the /etc/shadow file is first generated.
     # We assume mkRoot will always be called with at least id=1.
     fileSystems = {
       "/boot".neededForBoot = true;
       "/boot-backup" = mkIf (cfg.rootPool.disk2 != null) { neededForBoot = true; };
+      # /persist must be available early for separated-key mode (runtime SSH key for SOPS)
+      "/persist".neededForBoot = true;
     };
 
     # Follows https://grahamc.com/blog/erase-your-darlings/
