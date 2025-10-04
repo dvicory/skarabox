@@ -235,6 +235,8 @@ in
               postMountHook = optionalString cfg.dataPool.enable ''
                 cp /tmp/data_passphrase /mnt/persist/data_passphrase
               '';
+              # Note: Runtime SSH key (/tmp/runtime_host_key) is installed via
+              # system.activationScripts.install-runtime-ssh-key during system activation.
             };
           };
         };

@@ -79,18 +79,20 @@ All commands are prefixed by the hostname, allowing to handle multiple hosts.
 
    and copy needed config in [flake.nix][].
 
-## Migrate to dual host keys {#migrate-dual-keys}
+## Enable Key Separation {#enable-key-separation}
 
    ::: {.warning}
-   **Security Warning:** Single host key hosts are vulnerable to physical attacks. If someone gains physical access to your server, they can extract the `/boot/host_key` and decrypt all your secrets (passwords, API keys, etc.). Migrate to dual host keys to safeguard your user data at rest.
+   **Security Warning:** Single-key hosts are vulnerable to physical attacks. If someone gains physical access to your server, they can extract the `/boot/host_key` and decrypt all your secrets (passwords, API keys, etc.). Enable key separation to safeguard your user data at rest.
    :::
 
-   Upgrade existing hosts from single host key to dual host key architecture. This separates the boot key from your administrative secrets, protecting SOPS-encrypted data from physical attacks. **Note:** New hosts created with `gen-new-host` use dual host keys by default.
+   Upgrade existing hosts to separated-key architecture. This separates the boot key from your administrative secrets, protecting SOPS-encrypted data from physical attacks. The runtime key is stored in the encrypted ZFS pool, making it inaccessible until boot unlock. **Note:** New hosts created with `gen-new-host` use separated-key mode by default.
 
    ```bash
-   $ nix run .#myskarabox-prepare-dual-migration  # Generate runtime keys & update SOPS
-   $ nix run .#myskarabox-install-runtime-key     # Install on target
+   $ nix run .#myskarabox-enable-key-separation  # Generate runtime keys & update SOPS
+   $ nix run .#myskarabox-install-runtime-key    # Install on target
    ```
+
+   The first command generates runtime keys and renames your existing key to `myskarabox_boot`, adding the new runtime key as `myskarabox` (primary). The second command copies the runtime key to the target host.
 
    Update `myskarabox/configuration.nix` to switch SOPS to runtime key:
    ```nix
@@ -99,7 +101,7 @@ All commands are prefixed by the hostname, allowing to handle multiple hosts.
    ];
    ```
 
-   Update `flake.nix` to enable dual host key mode:
+   Update `flake.nix` to enable separated-key mode:
    ```nix
    skarabox.hosts.myskarabox = {
      # ... existing config
@@ -107,23 +109,33 @@ All commands are prefixed by the hostname, allowing to handle multiple hosts.
    };
    ```
 
-   Then regenerate known_hosts, deploy, and cleanup:
+   Deploy the separated-key configuration:
    ```bash
-   $ nix run .#myskarabox-gen-knownhosts-file  # Update for dual host keys
-   $ nix run .#deploy-rs                       # Apply dual host key config
+   $ nix run .#myskarabox-gen-knownhosts-file  # Update for separated keys
+   $ nix run .#deploy-rs                       # Switches host to runtime key
+   ```
 
+   After successful deployment, complete the migration (see warning below):
+   ```bash
    # Remove the boot key (now aliased as myskarabox_boot) from SOPS
    $ age_key=$(nix shell nixpkgs#ssh-to-age -c ssh-to-age < myskarabox/host_key.pub)
    $ nix run .#sops -- -r -i --rm-age "$age_key" myskarabox/secrets.yaml
+
+   # Rotate the boot key to protect against git history attacks (destructive)
+   $ nix run .#myskarabox-rotate-boot-key
+   $ nix run .#myskarabox-gen-knownhosts-file
    ```
 
-   **Note:** The migration script renames your existing key to `myskarabox_boot` and adds the runtime key as `myskarabox` (primary). After successful migration, remove the `_boot` key from SOPS.
+   ::: {.warning}
+   **Destructive Operation:** `rotate-boot-key` securely wipes the boot partition with `dd + TRIM` to ensure the old key is unrecoverable. The process backs up boot files to tmpfs, wipes the partition, recreates the filesystem, and reinstalls the bootloader. Requires the host to be accessible via runtime key.
+   :::
 
-   **Important:** After migration, rotate the boot key (see below) to protect against git history attacks where old secrets could be decrypted with a stolen boot key.
+   These final steps ensure secrets cannot be decrypted with the old boot key, protecting against both physical attacks and git history attacks.
 
 ## Rotate host key {#rotate-host-key}
 
-   **For single host key hosts (legacy):**
+   **For single-key hosts (legacy):**
+
    ```bash
    $ ssh-keygen -f ./myskarabox/host_key
    $ nix run .#add-sops-cfg -- -o .sops.yaml alias myskarabox $(ssh-to-age -i ./myskarabox/host_key.pub)
@@ -132,17 +144,23 @@ All commands are prefixed by the hostname, allowing to handle multiple hosts.
    $ nix run .#deploy-rs
    ```
 
-   **For dual host key hosts:**
+   **For separated-key hosts:**
+
+   Rotate boot key (necessary to protect against git history attack after migration):
+   
+   ::: {.warning}
+   **Destructive Operation:** This command securely wipes the boot partition with `dd + TRIM` to ensure the old key is unrecoverable. The process backs up boot files to tmpfs, wipes the partition, recreates the filesystem, and reinstalls the bootloader. Requires the host to be accessible via runtime key.
+   :::
+   
    ```bash
-   # Rotate boot key (boot unlock only - uses secure block-level wipe)
-   $ nix run .#myskarabox-rotate-boot-key  # Securely wipes boot partition
+   $ nix run .#myskarabox-rotate-boot-key
    $ nix run .#myskarabox-gen-knownhosts-file
    ```
 
-   **Rotate runtime key** (SOPS secrets - only if compromised):
+   Rotate runtime key (only if compromised - affects SOPS secrets):
    ```bash
    $ ssh-keygen -t ed25519 -N "" -f ./myskarabox/runtime_host_key
-   $ nix run .#add-sops-cfg -- -o .sops.yaml alias myskarabox_runtime $(ssh-to-age -i ./myskarabox/runtime_host_key.pub)
+   $ nix run .#add-sops-cfg -- -o .sops.yaml alias myskarabox $(ssh-to-age -i ./myskarabox/runtime_host_key.pub)
    $ nix run .#sops -- updatekeys ./myskarabox/secrets.yaml
    $ nix run .#myskarabox-gen-knownhosts-file
    $ nix run .#deploy-rs

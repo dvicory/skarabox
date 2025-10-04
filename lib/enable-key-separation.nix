@@ -5,7 +5,7 @@
   hostCfg,
 }:
 pkgs.writeShellApplication {
-  name = "prepare-dual-migration";
+  name = "enable-key-separation";
 
   runtimeInputs = [
     pkgs.openssh
@@ -32,17 +32,11 @@ pkgs.writeShellApplication {
       cat <<USAGE
 Usage: $0 [-h] [-f FLAKE_ROOT] [-v]
 
+Generates runtime keys and updates SOPS configuration for separated-key migration.
+
   -h:            Shows this usage
   -f FLAKE_ROOT: Root directory of the flake (default: current directory)
   -v:            Verbose output
-
-Prepares an existing single-key host for dual host key migration:
-  1. Generates runtime host key pair
-  2. Converts keys to Age format for SOPS
-  3. Updates .sops.yaml with both keys
-  4. Re-encrypts secrets with both keys
-
-This is a safe preparation step - no host behavior changes until deployment.
 USAGE
     }
 
@@ -166,12 +160,12 @@ USAGE
         exit 1
       fi
 
-      echo "Updated SOPS configuration with dual keys"
+      echo "Updated SOPS configuration with both keys"
       log "SOPS config updated successfully"
     }
 
     reencrypt_secrets () {
-      echo "[4/6] Preparing secrets for dual key encryption..."
+      echo "[4/6] Preparing secrets for re-encryption..."
 
       cp "$sops_file" "$sops_file.bak.$(date +%s)"
       log "Backed up secrets"
@@ -237,7 +231,7 @@ USAGE
     }
 
     main () {
-      echo "Preparing $hostname for dual host key migration..."
+      echo "Preparing $hostname for separated-key migration..."
 
       validate_boot_key
       validate_sops_files

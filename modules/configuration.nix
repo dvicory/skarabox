@@ -134,15 +134,12 @@ in
       apply = readAsStr;
     };
 
-    useDualHostKeys = mkOption {
+    useSeparatedKeys = mkOption {
       type = types.bool;
       default = false;
       description = ''
-        Force enable dual host key architecture.
-
-        NOTE: Dual keys are the default for new hosts and are auto-detected based on SOPS configuration.
-        If SOPS is configured to use a key under /persist/etc/ssh/, dual mode is automatically enabled.
-        Set this to true only if you need to override auto-detection for a custom setup.
+        Enable separated-key architecture with distinct boot and runtime SSH keys.
+        When disabled, uses single-key architecture (less secure, for backward compatibility).
       '';
     };
   };
@@ -151,13 +148,13 @@ in
     # Filter for host keys under /persist/etc/ssh/
     persistHostKeys = builtins.filter (path: lib.hasInfix "/persist/etc/ssh/" path) (config.sops.age.sshKeyPaths or []);
 
-    # Auto-detect dual host key mode based on SOPS configuration
-    isDualHostMode = cfg.useDualHostKeys || persistHostKeys != [];
+    # Auto-detect separated-key mode based on SOPS configuration
+    isSeparatedMode = cfg.useSeparatedKeys || persistHostKeys != [];
 
     # Extract runtime host key path from SOPS configuration
     # This is the key used for runtime SSH and SOPS decryption
     runtimeHostKeyPath =
-      if isDualHostMode
+      if isSeparatedMode
       then builtins.head persistHostKeys
       else null;
   in {
@@ -252,7 +249,7 @@ in
       ports = [ cfg.sshPort ];
       hostKeys = lib.mkForce [];
       extraConfig =
-        if isDualHostMode
+        if isSeparatedMode
         then ''
           HostKey ${runtimeHostKeyPath}
         ''
@@ -261,11 +258,12 @@ in
         '';
     };
 
-    systemd.tmpfiles.rules = lib.optionals isDualHostMode [
+    systemd.tmpfiles.rules = lib.optionals isSeparatedMode [
+      # Ensure /persist/etc/ssh directory exists before SSH tries to use it
       "d /persist/etc/ssh 0755 root root -"
     ];
 
-    system.activationScripts.install-runtime-ssh-key = lib.mkIf isDualHostMode {
+    system.activationScripts.install-runtime-ssh-key = lib.mkIf isSeparatedMode {
       text = ''
         if [ -f /tmp/runtime_host_key ] && [ ! -f ${runtimeHostKeyPath} ]; then
           echo "Skarabox: Installing runtime host key..."
@@ -278,12 +276,12 @@ in
       deps = ["users" "setupSecrets"];
     };
 
-    warnings = lib.optionals (!isDualHostMode) [
+    warnings = lib.optionals (!isSeparatedMode) [
       ''
-        Skarabox: Using single host key architecture (vulnerable to physical access)
+        Skarabox: Using single-key architecture (vulnerable to physical access)
 
         All secrets can be decrypted by anyone with physical access to /boot partition.
-        Consider migrating to dual host key mode for better security.
+        Consider migrating to separated-key mode for better security.
       ''
     ];
 

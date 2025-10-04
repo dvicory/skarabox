@@ -25,7 +25,7 @@ pkgs.writeShellApplication {
     yes=0
     mkpasswdargs=
     verbose=
-    dual_keys=1  # Default to dual keys for new hosts (better security)
+    separated_keys=1  # Default to separated-key architecture for new hosts (better security)
 
     usage () {
       cat <<USAGE
@@ -43,11 +43,11 @@ Usage: $0 [-h] [-y] [-s] [-v] [--single-key] -n HOSTNAME
   -n:        Generate files for this hostname.
 
   Advanced options:
-  --single-key: Use legacy single host key mode (less secure).
-                Creates only one key used for both boot unlock and
-                administrative access. Key stored unencrypted on /boot
-                partition enables SOPS secret compromise via physical access.
-                Consider dual-key mode (default) for better security.
+  --single-key: Use legacy single-key mode (less secure).
+             Creates only one key used for both boot unlock and
+             administrative access. Key stored unencrypted on /boot
+             partition enables SOPS secret compromise via physical access.
+             Consider separated-key mode (default) for better security.
 USAGE
     }
 
@@ -72,7 +72,7 @@ USAGE
         -)
           case "''${OPTARG}" in
             single-key)
-              dual_keys=0
+              separated_keys=0
               ;;
             *)
               echo "Unknown option: --''${OPTARG}" >&2
@@ -139,18 +139,18 @@ USAGE
     cp ${../template/myskarabox/configuration.nix} "$configuration"
     sed -i "s/myskarabox/$hostname/g" "$configuration"
 
-    # Template is configured for dual-key mode by default
+    # Template is configured for separated-key mode by default
     # Only patch for single-key mode if requested
-    if [ "$dual_keys" -eq 0 ]; then
+    if [ "$separated_keys" -eq 0 ]; then
       # Patch SOPS to use boot key instead of runtime key
       sed -i 's|/persist/etc/ssh/ssh_host_ed25519_key|/boot/host_key|' "$hostname/configuration.nix"
 
       # Update comment to reflect single-key mode (preserving indentation)
-      sed -i 's/# Dual key mode:.*/# Single host key mode (legacy - less secure)/' "$hostname/configuration.nix"
+      sed -i 's/# Separated-key mode:.*/# Single-key mode (legacy - less secure)/' "$hostname/configuration.nix"
 
-      e "Warning: Configuration uses legacy single host key mode (less secure)"
+      e "Warning: Configuration uses legacy single-key mode (less secure)"
     else
-      e "Configuration uses dual host key mode (enhanced security - OpenSSH standard path)"
+      e "Configuration uses separated-key mode (enhanced security - OpenSSH standard path)"
     fi
 
     e "[2/5] Generating host keys and admin SSH key"
@@ -159,8 +159,8 @@ USAGE
     e "Generating server host key in $host_key and $host_key.pub..."
     ssh-keygen -t ed25519 -N "" -f "$host_key" && chmod 600 "$host_key"
 
-    # Generate runtime key if dual keys enabled
-    if [ "$dual_keys" -eq 1 ]; then
+    # Generate runtime key if separated keys enabled
+    if [ "$separated_keys" -eq 1 ]; then
       runtime_key="./$hostname/runtime_host_key"
       runtime_key_pub="$runtime_key.pub"
       e "Generating runtime host key in $runtime_key and $runtime_key.pub..."
@@ -179,13 +179,13 @@ USAGE
     secrets="$hostname/secrets.yaml"
     e "Adding host key in $sops_cfg..."
 
-    # Use runtime key for SOPS if dual keys enabled, otherwise use boot key
-    if [ "$dual_keys" -eq 1 ]; then
+    # Use runtime key for SOPS if separated keys enabled, otherwise use boot key
+    if [ "$separated_keys" -eq 1 ]; then
       sops_key_pub="$runtime_key_pub"
-      e "Using secure runtime key for SOPS encryption (dual key mode)"
+      e "Using secure runtime key for SOPS encryption (separated-key mode)"
     else
       sops_key_pub="$host_key_pub"
-      e "Using boot host key for SOPS encryption (single key mode)"
+      e "Using boot host key for SOPS encryption (single-key mode)"
     fi
 
     host_age_key="$(ssh-to-age -i "$sops_key_pub")"
