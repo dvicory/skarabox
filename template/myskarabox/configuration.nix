@@ -53,7 +53,7 @@ in
 
       sops.defaultSopsFile = ./secrets.yaml;
       sops.age = {
-        # Dual key mode: use secure runtime key
+        # Separated-key mode: SOPS uses secure runtime key
         sshKeyPaths = ["/persist/etc/ssh/ssh_host_ed25519_key"];
       };
 

@@ -28,22 +28,24 @@ pkgs.writeShellApplication {
       cat <<USAGE
 Usage: $0 [-h]
 
+Rotates the boot SSH key with secure partition wipe for host: ${hostName}
+
+WARNING: Destructive operation - wipes boot partition with dd + TRIM.
+Old key becomes unrecoverable after block-level overwrite.
+
+Process:
+  1. Backup /boot to tmpfs
+  2. Unmount and securely wipe partition (dd + TRIM/discard)
+  3. Recreate filesystem and restore boot files with new key
+  4. Reinstall bootloader
+  5. Handle mirrored boot partitions if present
+
+Prerequisites:
+  - Must run after deploying separated-key configuration
+  - Target host must be reachable via runtime SSH key
+
+Options:
   -h: Shows this usage
-
-Rotates the boot SSH key for host: ${hostName}
-
-This command will:
-  1. Backup /boot contents to tmpfs
-  2. Securely wipe the boot partition (dd + TRIM/discard)
-  3. Recreate the filesystem
-  4. Restore boot files with new SSH key
-  5. Reinstall bootloader
-
-The old key will be unrecoverable (block-level wipe).
-
-After rotation, you must:
-  1. Update known_hosts: nix run .#${hostName}-gen-knownhosts-file
-  2. Reboot to activate: ssh $ssh_user@$host_ip sudo reboot
 USAGE
     }
 
@@ -67,6 +69,18 @@ USAGE
       exit 1
     fi
 
+    # https://stackoverflow.com/a/29436423/1013628
+    yes_or_no () {
+      while true; do
+        echo -ne "\e[1;31mWARNING:\e[0m "
+        read -rp "$* [y/N]: " yn
+        case $yn in
+          [Yy]*) return 0 ;;
+          [Nn]*|"") echo "Aborted." ; exit 0 ;;
+        esac
+      done
+    }
+
     # Show fingerprints
     echo "Boot SSH Key Rotation for $hostname"
     echo "===================================="
@@ -81,11 +95,9 @@ USAGE
     echo " 4. Restore boot files with new SSH key"
     echo " 5. Reinstall bootloader"
     echo ""
-    echo "Security: Old key will be unrecoverable (block-level wipe)"
+    echo "⚠️  DESTRUCTIVE: Old key will be unrecoverable (block-level wipe)"
     echo ""
-    read -p "Continue with rotation? [y/N] " -n 1 -r
-    echo
-    [[ $REPLY =~ ^[Yy]$ ]] || { echo "Aborted."; exit 0; }
+    yes_or_no "Continue with rotation?"
 
     # Remote script - uses system tools already on NixOS
     echo ""
@@ -227,10 +239,12 @@ REMOTE_SCRIPT
     fi
 
     echo ""
-    echo "Next Steps"
-    echo "=========="
-    echo "1. Update known_hosts: nix run .#${hostName}-gen-knownhosts-file"
-    echo "2. Reboot to activate: ssh $ssh_user@$host_ip sudo reboot"
+    echo "Next steps:"
+    echo " 1. Update known_hosts:"
+    echo "      nix run .#${hostName}-gen-knownhosts-file"
+    echo ""
+    echo " 2. Reboot to activate:"
+    echo "      ssh $ssh_user@$host_ip sudo reboot"
     echo ""
   '';
 }

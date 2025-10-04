@@ -60,12 +60,12 @@ in
             example = lib.literalExpression "./${name}/host_key.pub";
           };
           runtimeHostKeyPath = mkOption {
-            description = "Path from the top of the repo to the runtime ssh private file (dual host key mode only).";
+            description = "Path from the top of the repo to the runtime ssh private file (separated-key mode only).";
             type = types.nullOr types.str;
             default = "${name}/runtime_host_key";
           };
           runtimeHostKeyPub = mkOption {
-            description = "Runtime SSH public file (dual host key mode only).";
+            description = "Runtime SSH public file (separated-key mode only).";
             type = types.nullOr (with types; oneOf [ str path ]);
             default = null;
             apply = v: if v == null then null else readAsStr v;
@@ -354,7 +354,7 @@ in
 
               # Generate known_hosts file  
               {
-                # Check if dual host keys are configured
+                # Check if separated-key mode is configured
                 ${lib.optionalString (cfg'.runtimeHostKeyPub != null) ''
                   runtime_key_pub="${cfg'.runtimeHostKeyPub}"
                   gen-knownhosts-file "$host_key_pub" "$ip" $ssh_boot_port
@@ -481,7 +481,7 @@ in
             '';
           };
 
-          prepare-dual-migration = import ../lib/prepare-dual-migration.nix {
+          enable-key-separation = import ../lib/enable-key-separation.nix {
             inherit pkgs;
             hostName = name;
             hostCfg = cfg';
@@ -511,7 +511,7 @@ in
           "${name}-ssh" = ssh;
           "${name}-get-facter" = get-facter;
           "${name}-unlock" = unlock;
-          "${name}-prepare-dual-migration" = prepare-dual-migration;
+          "${name}-enable-key-separation" = enable-key-separation;
           "${name}-install-runtime-key" = install-runtime-key;
           "${name}-rotate-boot-key" = rotate-boot-key;
         };
