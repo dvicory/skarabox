@@ -424,6 +424,7 @@ in
             + concatStringsSep "\n" diskEncryptionTmpFiles
             + ''
 
+              # shellcheck disable=SC2016
               install-on-beacon \
                 -i $ip \
                 -u ${hostCfg.skarabox.username} \
