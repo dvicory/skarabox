@@ -28,6 +28,9 @@ pkgs.writeShellApplication {
       fi
     }
 
+    # Initialize extra_opts array
+    extra_opts=()
+
     while getopts "hi:p:f:k:d:a:u:" o; do
       case "''${o}" in
         h)
@@ -50,7 +53,8 @@ pkgs.writeShellApplication {
           username=''${OPTARG}
           ;;
         a)
-          read -ra extra_opts <<< "''${OPTARG}"
+          # Use eval to properly handle the arguments, including any remaining $* args
+          eval "extra_opts=(''${OPTARG})"
           ;;
         *)
           usage
