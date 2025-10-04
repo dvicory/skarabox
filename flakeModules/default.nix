@@ -424,7 +424,7 @@ in
                   ++ (lib.optionals (cfg'.sshPrivateKeyPath != null) [ "-i" cfg'.sshPrivateKeyPath ])
                   ++ [ "--disk-encryption-keys" "/tmp/host_key" cfg'.hostKeyPath ]
                   ++ (lib.flatten (mapAttrsToList (name: path: [ "--disk-encryption-keys" "/tmp/${name}" "\$secret_file_${name}" ]) secrets))
-                  ++ (lib.optionals (cfg'.runtimeHostKeyPub != null) [ "--extra-files" cfg'.runtimeHostKeyPath "/tmp/runtime_host_key" ]);
+                  ++ (lib.optionals (cfg'.runtimeHostKeyPub != null) [ "--disk-encryption-keys" "/tmp/runtime_host_key" cfg'.runtimeHostKeyPath ]);
                 
                 # Convert to a bash array declaration
                 argsString = concatStringsSep " " (map (arg: ''"${arg}"'') extraArgs);
