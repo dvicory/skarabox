@@ -3,6 +3,10 @@ let
   cfg = config.skarabox.disks;
 
   inherit (lib) mkIf mkOption optionals optionalString types;
+
+  # Use auto-detected values from configuration.nix
+  isSeparatedMode = config.skarabox._isSeparatedMode;
+  runtimeHostKeyPath = config.skarabox._runtimeHostKeyPath;
 in
 {
   options.skarabox.disks = {
@@ -232,11 +236,22 @@ in
               mountpoint = "/persist";
               # It's prefixed by /mnt because we're installing and everything is mounted under /mnt.
               options.mountpoint = "legacy";
-              postMountHook = optionalString cfg.dataPool.enable ''
-                cp /tmp/data_passphrase /mnt/persist/data_passphrase
+              postMountHook = ''
+                ${optionalString cfg.dataPool.enable ''
+                  cp /tmp/data_passphrase /mnt/persist/data_passphrase
+                ''}
+                # Install runtime SSH key for separated-key mode
+                # This must happen during disko, before nixos-install runs, so that
+                # SOPS can use it to decrypt secrets during system activation
+                ${optionalString isSeparatedMode ''
+                  if [ -f /tmp/runtime_host_key ]; then
+                    target_path="/mnt${runtimeHostKeyPath}"
+                    mkdir -p "$(dirname "$target_path")"
+                    install -D -m 600 /tmp/runtime_host_key "$target_path"
+                    echo "Skarabox: Installed runtime host key at $target_path for SOPS decryption"
+                  fi
+                ''}
               '';
-              # Note: Runtime SSH key (/tmp/runtime_host_key) is installed via
-              # system.activationScripts.install-runtime-ssh-key during system activation.
             };
           };
         };
