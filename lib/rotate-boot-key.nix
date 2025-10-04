@@ -229,14 +229,8 @@ REMOTE_SCRIPT
     echo ""
     echo "Next Steps"
     echo "=========="
-    echo "1. Update known_hosts:"
-    echo "  nix run .#$hostname-gen-knownhosts-file"
-    echo ""
-    echo "2. Test boot SSH (before reboot):"
-    echo "  ssh -p \$(cat $hostname/ssh_boot_port) root@$host_ip"
-    echo ""
-    echo "3. Reboot to activate new key in boot:"
-    echo "  ssh -p $ssh_port $ssh_user@$host_ip sudo reboot"
+    echo "1. Update known_hosts: nix run .#${hostName}-gen-knownhosts-file"
+    echo "2. Reboot to activate: ssh $ssh_user@$host_ip sudo reboot"
     echo ""
   '';
 }
