@@ -25,6 +25,7 @@ pkgs.writeShellApplication {
     yes=0
     mkpasswdargs=
     verbose=
+    hostname=         # Initialize hostname variable
     separated_keys=1  # Default to separated-key architecture for new hosts (better security)
 
     usage () {
