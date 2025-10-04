@@ -537,8 +537,9 @@ in
     };
 
     flake = flakeInputs: let
-      mkFlake = name: cfg': {
-        nixosConfigurations.${name} = skaraboxLib.nixosSystem cfg'.nixpkgs {
+      # First, build all nixosConfigurations
+      allNixosConfigurations = concatMapAttrs (name: cfg': {
+        ${name} = skaraboxLib.nixosSystem cfg'.nixpkgs {
           inherit (cfg') system;
           modules = cfg'.modules ++ [
             inputs.skarabox.nixosModules.skarabox
@@ -547,20 +548,26 @@ in
             }
           ];
         };
+      }) cfg.hosts;
 
-        packages.${cfg'.system} = let
-          nixosConfigurationConfig = topLevelConfig.flake.nixosConfigurations.${name}.config;
-        in {
-          ${name} = nixosConfigurationConfig.system.build.toplevel;
-          "${name}-debug-facter-nvd" = nixosConfigurationConfig.facter.debug.nvd;
-          "${name}-debug-facter-nix-diff" = nixosConfigurationConfig.facter.debug.nix-diff;
-        };
-      };
+      # Then, collect all packages per system, referencing the nixosConfigurations
+      allPackages = lib.foldlAttrs (acc: name: cfg': let
+        nixosConfigurationConfig = allNixosConfigurations.${name}.config;
+        system = cfg'.system;
+      in
+        acc // {
+          ${system} = (acc.${system} or {}) // {
+            ${name} = nixosConfigurationConfig.system.build.toplevel;
+            "${name}-debug-facter-nvd" = nixosConfigurationConfig.facter.debug.nvd;
+            "${name}-debug-facter-nix-diff" = nixosConfigurationConfig.facter.debug.nix-diff;
+          };
+        }
+      ) {} cfg.hosts;
 
-      common = {
-        nixosModules.beacon = beacon-module;
-      };
-    in
-      common // (concatMapAttrs mkFlake cfg.hosts);
+    in {
+      nixosModules.beacon = beacon-module;
+      nixosConfigurations = allNixosConfigurations;
+      packages = allPackages;
+    };
   };
 }
