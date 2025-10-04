@@ -410,7 +410,7 @@ in
                 mapAttrsToList mkTmpFile secrets;
 
               diskEncryptionOptions = let
-                mkOption = name: path: ''--disk-encryption-keys /tmp/${name} "''$secret_file_${name}" '';
+                mkOption = name: path: ''--disk-encryption-keys /tmp/${name} \$secret_file_${name} '';
               in
                 mapAttrsToList mkOption secrets;
             in ''
@@ -430,7 +430,7 @@ in
                 -p $ssh_port \
                 -f "$flake" \
                 -k ${cfg'.hostKeyPath} \
-                -a "--ssh-option ConnectTimeout=10 ${if cfg'.sshPrivateKeyPath != null then "-i ${cfg'.sshPrivateKeyPath}" else ""} ${concatStringsSep " " diskEncryptionOptions} ${lib.optionalString (cfg'.runtimeHostKeyPub != null) "--extra-files ${cfg'.runtimeHostKeyPath} /tmp/runtime_host_key"} $*"
+                -a '--ssh-option ConnectTimeout=10 ${if cfg'.sshPrivateKeyPath != null then "-i ${cfg'.sshPrivateKeyPath}" else ""} ${concatStringsSep " " diskEncryptionOptions} ${lib.optionalString (cfg'.runtimeHostKeyPub != null) "--extra-files ${cfg'.runtimeHostKeyPath} /tmp/runtime_host_key"} '"$*"
             '';
           };
 
