@@ -170,6 +170,15 @@ USAGE
       cp "$sops_file" "$sops_file.bak.$(date +%s)"
       log "Backed up secrets"
 
+      # Check if sops.key exists in the current directory
+      if [ ! -f "sops.key" ]; then
+        echo "Warning: sops.key not found in current directory" >&2
+        echo "  Cannot automatically re-encrypt secrets" >&2
+        echo "  Manual step required after script completes:" >&2
+        echo "    nix run .#sops -- updatekeys $sops_file" >&2
+        return 0
+      fi
+
       # Check if we can decrypt the current secrets (i.e., do we have the keys?)
       if sops -d "$sops_file" >/dev/null 2>&1; then
         echo "Re-encrypting with both keys..."
@@ -184,19 +193,29 @@ USAGE
 
         echo "Secrets re-encrypted with both keys"
       else
-        echo "Warning: Cannot decrypt secrets locally - manual re-encryption required" >&2
-        echo "  You must re-encrypt secrets before deployment will work" >&2
-        exit 1
+        echo "Warning: Cannot decrypt secrets locally" >&2
+        echo "  This usually means sops.key is not accessible in the Nix sandbox" >&2
+        echo "  Manual step required after script completes:" >&2
+        echo "    nix run .#sops -- updatekeys $sops_file" >&2
+        return 0
       fi
     }
 
     validate_sops_decryption () {
       echo "[5/6] Validating configuration..."
 
+      # Only validate if sops.key is accessible
+      if [ ! -f "sops.key" ]; then
+        echo "Skipping validation (sops.key not accessible)"
+        log "Will need manual re-encryption step"
+        return 0
+      fi
+
       if ! sops -d "$sops_file" >/dev/null 2>&1; then
-        echo "Error: Cannot decrypt secrets after re-encryption" >&2
-        echo "This should not happen - secrets were just re-encrypted successfully" >&2
-        exit 1
+        echo "Warning: Cannot decrypt secrets after configuration update" >&2
+        echo "  Manual re-encryption required:" >&2
+        echo "    nix run .#sops -- updatekeys $sops_file" >&2
+        return 0
       fi
 
       echo "Validation complete"
@@ -204,6 +223,11 @@ USAGE
     }
 
     show_migration_status () {
+      local needs_manual_reencrypt=0
+      if [ ! -f "sops.key" ] || ! sops -d "$sops_file" >/dev/null 2>&1; then
+        needs_manual_reencrypt=1
+      fi
+
       echo ""
       echo "[6/6] Migration Preparation Complete"
       echo ""
@@ -211,10 +235,26 @@ USAGE
       echo "  $runtime_key"
       echo "  $runtime_key_pub_path"
       echo "  $sops_cfg"
-      echo "  $sops_file"
+
+      if [ "$needs_manual_reencrypt" -eq 0 ]; then
+        echo "  $sops_file (re-encrypted)"
+      else
+        echo "  $sops_cfg (updated, secrets need manual re-encryption)"
+      fi
 
       echo ""
+      if [ "$needs_manual_reencrypt" -eq 1 ]; then
+        echo "⚠️  REQUIRED: Re-encrypt secrets with new keys:"
+        echo "      nix run .#sops -- updatekeys $sops_file"
+        echo ""
+      fi
+
       echo "Next steps:"
+      if [ "$needs_manual_reencrypt" -eq 1 ]; then
+        echo " 0. RE-ENCRYPT SECRETS (required before proceeding):"
+        echo "      nix run .#sops -- updatekeys $sops_file"
+        echo ""
+      fi
       echo " 1. Install runtime key on target:"
       echo "      nix run .#$hostname-install-runtime-key"
       echo ""
