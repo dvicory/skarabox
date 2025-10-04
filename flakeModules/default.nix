@@ -550,20 +550,19 @@ in
         };
       }) cfg.hosts;
 
-      # Build packages lazily by using recursiveUpdate to merge per-host package sets
-      # Using lib.foldl (not foldl') to maintain laziness - only accessed packages
+      # Build packages lazily by grouping hosts by system, then creating packages per host.
+      # Using groupBy + mapAttrs + listToAttrs maintains laziness: only accessed packages
       # trigger evaluation of their host. Each host's packages reference nixosConfigurations
       # directly, so they remain lazy thunks until accessed.
-      allPackages = lib.foldl
-        lib.recursiveUpdate
-        {}
-        (lib.mapAttrsToList (name: cfg': {
-          ${cfg'.system} = {
-            ${name} = allNixosConfigurations.${name}.config.system.build.toplevel;
-            "${name}-debug-facter-nvd" = allNixosConfigurations.${name}.config.facter.debug.nvd;
-            "${name}-debug-facter-nix-diff" = allNixosConfigurations.${name}.config.facter.debug.nix-diff;
-          };
-        }) cfg.hosts);
+      hostsBySystem = lib.groupBy (name: cfg.hosts.${name}.system) (lib.attrNames cfg.hosts);
+      
+      allPackages = lib.mapAttrs (system: hostNames:
+        lib.listToAttrs (lib.concatMap (name: [
+          { name = name; value = allNixosConfigurations.${name}.config.system.build.toplevel; }
+          { name = "${name}-debug-facter-nvd"; value = allNixosConfigurations.${name}.config.facter.debug.nvd; }
+          { name = "${name}-debug-facter-nix-diff"; value = allNixosConfigurations.${name}.config.facter.debug.nix-diff; }
+        ]) hostNames)
+      ) hostsBySystem;
 
     in {
       nixosModules.beacon = beacon-module;
