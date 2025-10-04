@@ -42,6 +42,13 @@
         nixpkgs = inputs.selfhostblocks.lib.${config.skarabox.hosts.myskarabox.system}.patchedNixpkgs;
         system = "x86_64-linux";
         hostKeyPub = ./myskarabox/host_key.pub;
+
+        # Dual host key mode (default for new hosts - enhanced security)
+        runtimeHostKeyPub = ./myskarabox/runtime_host_key.pub;
+
+        # Single host key mode (legacy - less secure)
+        # For hosts created with --single-key flag, comment out runtimeHostKeyPub above
+
         ip = "192.168.1.30";
         sshAuthorizedKey = ./myskarabox/ssh.pub;
         knownHosts = ./myskarabox/known_hosts;
