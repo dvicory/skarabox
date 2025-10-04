@@ -88,11 +88,12 @@ All commands are prefixed by the hostname, allowing to handle multiple hosts.
    Upgrade existing hosts to separated-key architecture. This separates the boot key from your administrative secrets, protecting SOPS-encrypted data from physical attacks. The runtime key is stored in the encrypted ZFS pool, making it inaccessible until boot unlock. **Note:** New hosts created with `gen-new-host` use separated-key mode by default.
 
    ```bash
-   $ nix run .#myskarabox-enable-key-separation  # Generate runtime keys & update SOPS
-   $ nix run .#myskarabox-install-runtime-key    # Install on target
+   $ nix run .#myskarabox-enable-key-separation            # Generate runtime keys & update SOPS config
+   $ nix run .#sops -- updatekeys myskarabox/secrets.yaml  # Re-encrypt with both keys
+   $ nix run .#myskarabox-install-runtime-key              # Install runtime key on target
    ```
 
-   The first command generates runtime keys and renames your existing key to `myskarabox_boot`, adding the new runtime key as `myskarabox` (primary). The second command copies the runtime key to the target host.
+   The first command generates runtime keys and updates `.sops.yaml`, renaming your existing key to `myskarabox_boot` (aliased) and adding the new runtime key as `myskarabox` (primary). The second command re-encrypts your secrets so both keys can decrypt them during migration. The third command copies the runtime key to the target host.
 
    Update `myskarabox/configuration.nix` to switch SOPS to runtime key:
    ```nix
