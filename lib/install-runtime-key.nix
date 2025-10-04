@@ -81,16 +81,20 @@ USAGE
     known_hosts="${hostCfg.knownHosts}"
     ssh_key="${if hostCfg.sshPrivateKeyPath != null then hostCfg.sshPrivateKeyPath else "${hostName}/ssh"}"
 
-    # Copy runtime private key to /tmp/ on target host
-    echo "Copying runtime key to $host_ip:$ssh_port..."
-    scp -P "$ssh_port" -i "$ssh_key" \
+    # Install runtime private key directly to final location on target host
+    echo "Installing runtime key to $host_ip:$ssh_port..."
+
+    # Stream key directly via SSH stdin to avoid tmp file exposure
+    # The key never exists in /tmp - goes straight to final location with correct permissions
+    ssh -p "$ssh_port" -i "$ssh_key" \
       -o "IdentitiesOnly=yes" \
       -o "UserKnownHostsFile=$known_hosts" \
       -o "ConnectTimeout=10" \
-      "$runtime_key" \
-      "$ssh_user@$host_ip:/tmp/"
+      "$ssh_user@$host_ip" \
+      "sudo mkdir -p /persist/etc/ssh && sudo chmod 755 /persist/etc/ssh && sudo install -D -m 600 /dev/stdin /persist/etc/ssh/ssh_host_ed25519_key" \
+      < "$runtime_key"
 
-    echo "Runtime key copied to /tmp/ on $hostname"
+    echo "Runtime key installed at /persist/etc/ssh/ssh_host_ed25519_key on $hostname"
     echo ""
     echo "Next steps:"
     echo " 1. Update $hostname/configuration.nix:"
