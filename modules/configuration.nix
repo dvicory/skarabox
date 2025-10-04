@@ -133,9 +133,34 @@ in
       '';
       apply = readAsStr;
     };
+
+    useDualHostKeys = mkOption {
+      type = types.bool;
+      default = false;
+      description = ''
+        Force enable dual host key architecture.
+
+        NOTE: Dual keys are the default for new hosts and are auto-detected based on SOPS configuration.
+        If SOPS is configured to use a key under /persist/etc/ssh/, dual mode is automatically enabled.
+        Set this to true only if you need to override auto-detection for a custom setup.
+      '';
+    };
   };
 
-  config = {
+  config = let
+    # Filter for host keys under /persist/etc/ssh/
+    persistHostKeys = builtins.filter (path: lib.hasInfix "/persist/etc/ssh/" path) (config.sops.age.sshKeyPaths or []);
+
+    # Auto-detect dual host key mode based on SOPS configuration
+    isDualHostMode = cfg.useDualHostKeys || persistHostKeys != [];
+
+    # Extract runtime host key path from SOPS configuration
+    # This is the key used for runtime SSH and SOPS decryption
+    runtimeHostKeyPath =
+      if isDualHostMode
+      then builtins.head persistHostKeys
+      else null;
+  in {
     assertions = [
       {
         assertion = cfg.staticNetwork == null -> config.boot.initrd.network.udhcpc.enable;
@@ -226,10 +251,41 @@ in
       };
       ports = [ cfg.sshPort ];
       hostKeys = lib.mkForce [];
-      extraConfig = ''
-        HostKey /boot/host_key
-      '';
+      extraConfig =
+        if isDualHostMode
+        then ''
+          HostKey ${runtimeHostKeyPath}
+        ''
+        else ''
+          HostKey /boot/host_key
+        '';
     };
+
+    systemd.tmpfiles.rules = lib.optionals isDualHostMode [
+      "d /persist/etc/ssh 0755 root root -"
+    ];
+
+    system.activationScripts.install-runtime-ssh-key = lib.mkIf isDualHostMode {
+      text = ''
+        if [ -f /tmp/runtime_host_key ] && [ ! -f ${runtimeHostKeyPath} ]; then
+          echo "Skarabox: Installing runtime host key..."
+          mkdir -p $(dirname ${runtimeHostKeyPath})
+          install -D -m 600 /tmp/runtime_host_key ${runtimeHostKeyPath}
+          rm -f /tmp/runtime_host_key
+          echo "Skarabox: Runtime host key installed at ${runtimeHostKeyPath}"
+        fi
+      '';
+      deps = ["users" "setupSecrets"];
+    };
+
+    warnings = lib.optionals (!isDualHostMode) [
+      ''
+        Skarabox: Using single host key architecture (vulnerable to physical access)
+
+        All secrets can be decrypted by anyone with physical access to /boot partition.
+        Consider migrating to dual host key mode for better security.
+      ''
+    ];
 
     system.stateVersion = "23.11";
   };

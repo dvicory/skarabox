@@ -59,6 +59,18 @@ in
             apply = readAsStr;
             example = lib.literalExpression "./${name}/host_key.pub";
           };
+          runtimeHostKeyPath = mkOption {
+            description = "Path from the top of the repo to the runtime ssh private file (dual host key mode only).";
+            type = types.nullOr types.str;
+            default = "${name}/runtime_host_key";
+          };
+          runtimeHostKeyPub = mkOption {
+            description = "Runtime SSH public file (dual host key mode only).";
+            type = types.nullOr (with types; oneOf [ str path ]);
+            default = null;
+            apply = v: if v == null then null else readAsStr v;
+            example = lib.literalExpression "./${name}/runtime_host_key.pub";
+          };
           ip = mkOption {
             description = ''
               IP or hostname used to ssh into the server.
@@ -340,9 +352,20 @@ in
               ssh_boot_port=${toString hostCfg.skarabox.boot.sshPort}
               host_key_pub="${cfg'.hostKeyPub}"
 
-              gen-knownhosts-file \
-                "$host_key_pub" "$ip" $ssh_port $ssh_boot_port \
-                > ${cfg'.knownHostsPath}
+              # Generate known_hosts file  
+              {
+                # Check if dual host keys are configured
+                ${lib.optionalString (cfg'.runtimeHostKeyPub != null) ''
+                  runtime_key_pub="${cfg'.runtimeHostKeyPub}"
+                  gen-knownhosts-file "$host_key_pub" "$ip" $ssh_boot_port
+                  gen-knownhosts-file "$runtime_key_pub" "$ip" $ssh_port
+                ''}
+
+                # Single key mode (backward compatibility)
+                ${lib.optionalString (cfg'.runtimeHostKeyPub == null) ''
+                  gen-knownhosts-file "$host_key_pub" "$ip" $ssh_port $ssh_boot_port
+                ''}
+              } > ${cfg'.knownHostsPath}
             '';
           };
 
@@ -402,7 +425,7 @@ in
                 -p $ssh_port \
                 -f "$flake" \
                 -k ${cfg'.hostKeyPath} \
-                -a "--ssh-option ConnectTimeout=10 ${if cfg'.sshPrivateKeyPath != null then "-i ${cfg'.sshPrivateKeyPath}" else ""} ${concatStringsSep " " diskEncryptionOptions} $*"
+                -a "--ssh-option ConnectTimeout=10 ${if cfg'.sshPrivateKeyPath != null then "-i ${cfg'.sshPrivateKeyPath}" else ""} ${concatStringsSep " " diskEncryptionOptions} ${lib.optionalString (cfg'.runtimeHostKeyPub != null) "--extra-files ${cfg'.runtimeHostKeyPath} /tmp/runtime_host_key"} $*"
             '';
           };
 
@@ -457,6 +480,27 @@ in
               printf '%s' "$root_passphrase" | boot-ssh -T "$@"
             '';
           };
+
+          prepare-dual-migration = import ../lib/prepare-dual-migration.nix {
+            inherit pkgs;
+            hostName = name;
+            hostCfg = cfg';
+            add-sops-cfg = import ../lib/add-sops-cfg.nix { inherit pkgs; };
+          };
+
+          install-runtime-key = import ../lib/install-runtime-key.nix {
+            inherit pkgs;
+            hostName = name;
+            hostCfg = cfg';
+            nixosCfg = hostCfg;
+          };
+
+          rotate-boot-key = import ../lib/rotate-boot-key.nix {
+            inherit pkgs;
+            hostName = name;
+            hostCfg = cfg';
+            nixosCfg = hostCfg;
+          };
         in {
           "${name}-boot-ssh" = boot-ssh;
           "${name}-sops" = sops;
@@ -467,6 +511,9 @@ in
           "${name}-ssh" = ssh;
           "${name}-get-facter" = get-facter;
           "${name}-unlock" = unlock;
+          "${name}-prepare-dual-migration" = prepare-dual-migration;
+          "${name}-install-runtime-key" = install-runtime-key;
+          "${name}-rotate-boot-key" = rotate-boot-key;
         };
     in {
       packages = {
