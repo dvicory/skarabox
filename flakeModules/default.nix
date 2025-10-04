@@ -550,19 +550,20 @@ in
         };
       }) cfg.hosts;
 
-      # Then, collect all packages per system, referencing the nixosConfigurations
-      allPackages = lib.foldlAttrs (acc: name: cfg': let
-        nixosConfigurationConfig = allNixosConfigurations.${name}.config;
-        system = cfg'.system;
-      in
-        acc // {
-          ${system} = (acc.${system} or {}) // {
-            ${name} = nixosConfigurationConfig.system.build.toplevel;
-            "${name}-debug-facter-nvd" = nixosConfigurationConfig.facter.debug.nvd;
-            "${name}-debug-facter-nix-diff" = nixosConfigurationConfig.facter.debug.nix-diff;
+      # Build packages lazily by using recursiveUpdate to merge per-host package sets
+      # Using lib.foldl (not foldl') to maintain laziness - only accessed packages
+      # trigger evaluation of their host. Each host's packages reference nixosConfigurations
+      # directly, so they remain lazy thunks until accessed.
+      allPackages = lib.foldl
+        lib.recursiveUpdate
+        {}
+        (lib.mapAttrsToList (name: cfg': {
+          ${cfg'.system} = {
+            ${name} = allNixosConfigurations.${name}.config.system.build.toplevel;
+            "${name}-debug-facter-nvd" = allNixosConfigurations.${name}.config.facter.debug.nvd;
+            "${name}-debug-facter-nix-diff" = allNixosConfigurations.${name}.config.facter.debug.nix-diff;
           };
-        }
-      ) {} cfg.hosts;
+        }) cfg.hosts);
 
     in {
       nixosModules.beacon = beacon-module;
