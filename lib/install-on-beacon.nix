@@ -64,6 +64,17 @@ pkgs.writeShellApplication {
     check_empty "$host_key_file" -k host_key_file
     check_empty "$username" -u username
 
+    # Debug: show what we're passing
+    echo "Running nixos-anywhere with args:" >&2
+    echo "  --flake $flake" >&2
+    echo "  --disk-encryption-keys /tmp/host_key $host_key_file" >&2
+    echo "  --ssh-port $port" >&2
+    echo "  Extra args (\$@):" >&2
+    for arg in "$@"; do
+      echo "    $arg" >&2
+    done
+    echo "  Target: $username@$ip" >&2
+
     # All remaining arguments are passed to nixos-anywhere
     nixos-anywhere \
       --flake "$flake" \
