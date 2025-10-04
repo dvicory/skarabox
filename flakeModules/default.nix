@@ -199,7 +199,7 @@ in
               -o UserKnownHostsFile=${cfg'.knownHosts} \
               -o ConnectTimeout=10 \
               ${if cfg'.sshPrivateKeyPath != null then "-i ${cfg'.sshPrivateKeyPath}" else ""} \
-              "$*"
+              "$@"
           '';
         };
 
