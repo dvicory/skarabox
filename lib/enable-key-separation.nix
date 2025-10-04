@@ -9,8 +9,6 @@ pkgs.writeShellApplication {
 
   runtimeInputs = [
     pkgs.openssh
-    pkgs.sops
-    pkgs.jq
     pkgs.yq-go
     pkgs.ssh-to-age
     add-sops-cfg
@@ -164,107 +162,33 @@ USAGE
       log "SOPS config updated successfully"
     }
 
-    reencrypt_secrets () {
-      echo "[4/6] Preparing secrets for re-encryption..."
-
-      cp "$sops_file" "$sops_file.bak.$(date +%s)"
-      log "Backed up secrets"
-
-      # Check if sops.key exists in the current directory
-      if [ ! -f "sops.key" ]; then
-        echo "Warning: sops.key not found in current directory" >&2
-        echo "  Cannot automatically re-encrypt secrets" >&2
-        echo "  Manual step required after script completes:" >&2
-        echo "    nix run .#sops -- updatekeys $sops_file" >&2
-        return 0
-      fi
-
-      # Check if we can decrypt the current secrets (i.e., do we have the keys?)
-      if sops -d "$sops_file" >/dev/null 2>&1; then
-        echo "Re-encrypting with both keys..."
-
-        # Re-encrypt with updated keys
-        if ! sops updatekeys "$sops_file"; then
-          echo "Error: Failed to re-encrypt secrets with new keys" >&2
-          echo "Restoring backup..."
-          mv "$sops_file.bak."* "$sops_file" 2>/dev/null || true
-          exit 1
-        fi
-
-        echo "Secrets re-encrypted with both keys"
-      else
-        echo "Warning: Cannot decrypt secrets locally" >&2
-        echo "  This usually means sops.key is not accessible in the Nix sandbox" >&2
-        echo "  Manual step required after script completes:" >&2
-        echo "    nix run .#sops -- updatekeys $sops_file" >&2
-        return 0
-      fi
-    }
-
-    validate_sops_decryption () {
-      echo "[5/6] Validating configuration..."
-
-      # Only validate if sops.key is accessible
-      if [ ! -f "sops.key" ]; then
-        echo "Skipping validation (sops.key not accessible)"
-        log "Will need manual re-encryption step"
-        return 0
-      fi
-
-      if ! sops -d "$sops_file" >/dev/null 2>&1; then
-        echo "Warning: Cannot decrypt secrets after configuration update" >&2
-        echo "  Manual re-encryption required:" >&2
-        echo "    nix run .#sops -- updatekeys $sops_file" >&2
-        return 0
-      fi
-
-      echo "Validation complete"
-      log "Confirmed decryption works with new keys"
-    }
+    # Note: Secrets re-encryption is now a manual step
+  # The script will guide the user after completing the automated steps
 
     show_migration_status () {
-      local needs_manual_reencrypt=0
-      if [ ! -f "sops.key" ] || ! sops -d "$sops_file" >/dev/null 2>&1; then
-        needs_manual_reencrypt=1
-      fi
-
       echo ""
-      echo "[6/6] Migration Preparation Complete"
+      echo "[4/4] Migration Preparation Complete"
       echo ""
       echo "Files updated:"
       echo "  $runtime_key"
       echo "  $runtime_key_pub_path"
       echo "  $sops_cfg"
 
-      if [ "$needs_manual_reencrypt" -eq 0 ]; then
-        echo "  $sops_file (re-encrypted)"
-      else
-        echo "  $sops_cfg (updated, secrets need manual re-encryption)"
-      fi
-
       echo ""
-      if [ "$needs_manual_reencrypt" -eq 1 ]; then
-        echo "⚠️  REQUIRED: Re-encrypt secrets with new keys:"
-        echo "      nix run .#sops -- updatekeys $sops_file"
-        echo ""
-      fi
-
       echo "Next steps:"
-      if [ "$needs_manual_reencrypt" -eq 1 ]; then
-        echo " 0. RE-ENCRYPT SECRETS (required before proceeding):"
-        echo "      nix run .#sops -- updatekeys $sops_file"
-        echo ""
-      fi
-      echo " 1. Install runtime key on target:"
+      echo " 1. Re-encrypt secrets:"
+      echo "      nix run .#sops -- updatekeys $sops_file"
+      echo ""
+      echo " 2. Install runtime key on target:"
       echo "      nix run .#$hostname-install-runtime-key"
       echo ""
-      echo " 2. Update configuration.nix SOPS path:"
+      echo " 3. Update configuration.nix SOPS path:"
       echo "      sshKeyPaths = [\"/persist/etc/ssh/ssh_host_ed25519_key\"];"
       echo ""
-      echo " 3. Update flake.nix:"
+      echo " 4. Update flake.nix:"
       echo "      runtimeHostKeyPub = ./$hostname/runtime_host_key.pub;"
       echo ""
-      echo " 4. Regenerate known_hosts and deploy:"
+      echo " 5. Regenerate known_hosts and deploy:"
       echo "      nix run .#$hostname-gen-knownhosts-file"
       echo "      nix run .#deploy-rs"
       echo ""
@@ -279,8 +203,6 @@ USAGE
       generate_runtime_key
       get_age_keys
       update_sops_config
-      reencrypt_secrets
-      validate_sops_decryption
 
       show_migration_status
     }
