@@ -142,39 +142,15 @@ in
         When disabled, uses single-key architecture (less secure, for backward compatibility).
       '';
     };
-
-    # Internal options - auto-detected, used by other modules
-    _isSeparatedMode = mkOption {
-      type = types.bool;
-      internal = true;
-      readOnly = true;
-      description = "Whether separated-key mode is enabled (auto-detected from SOPS config)";
-    };
-
-    _runtimeHostKeyPath = mkOption {
-      type = types.nullOr types.str;
-      internal = true;
-      readOnly = true;
-      description = "Path to the runtime host key (auto-detected from SOPS config)";
-    };
   };
 
   config = let
-    # Filter for host keys under /persist - these are runtime keys in separated-key mode
-    persistHostKeys = builtins.filter 
-      (path: lib.hasInfix "/persist" path) 
-      (config.sops.age.sshKeyPaths or []);
-
-    # Auto-detect separated-key mode
-    isSeparatedMode = cfg.useSeparatedKeys || persistHostKeys != [];
-
-    # Extract runtime host key path from SOPS configuration
-    runtimeHostKeyPath = if persistHostKeys != [] then builtins.head persistHostKeys else null;
+    # Standard path for runtime host key in separated-key mode
+    runtimeKeyPath = "/persist/etc/ssh/ssh_host_ed25519_key";
+    
+    # Auto-detect separated-key mode: check if SOPS uses the standard runtime key path
+    isSeparatedMode = cfg.useSeparatedKeys || builtins.elem runtimeKeyPath (config.sops.age.sshKeyPaths or []);
   in {
-    # Expose computed values for other modules to use
-    skarabox._isSeparatedMode = isSeparatedMode;
-    skarabox._runtimeHostKeyPath = runtimeHostKeyPath;
-
     assertions = [
       {
         assertion = cfg.staticNetwork == null -> config.boot.initrd.network.udhcpc.enable;
@@ -182,6 +158,30 @@ in
           If DHCP is disabled and an IP is not set, the box will not be reachable through the network on boot and you will not be able to enter the passphrase through SSH.
 
           To fix this error, either set config.boot.initrd.network.udhcpc.enable = true or give an IP to skarabox.staticNetwork.ip.
+        '';
+      }
+      {
+        assertion = !isSeparatedMode || builtins.elem runtimeKeyPath (config.sops.age.sshKeyPaths or []);
+        message = ''
+          Skarabox separated-key mode requires runtime key at standard location.
+
+          Expected: ${runtimeKeyPath}
+          Found in sops.age.sshKeyPaths: ${lib.concatStringsSep ", " (config.sops.age.sshKeyPaths or ["(none configured)"])}
+
+          Please configure:
+            sops.age.sshKeyPaths = ["${runtimeKeyPath}"];
+        '';
+      }
+      {
+        assertion = config.services.openssh.hostKeys == [];
+        message = ''
+          Skarabox manages SSH host keys explicitly.
+          Do not override services.openssh.hostKeys.
+
+          Current value: ${builtins.toJSON config.services.openssh.hostKeys}
+          Expected: []
+
+          Skarabox configures the host key via extraConfig.
         '';
       }
     ];
@@ -265,18 +265,19 @@ in
       };
       ports = [ cfg.sshPort ];
       hostKeys = lib.mkForce [];
-      extraConfig =
+      extraConfig = lib.mkAfter (
         if isSeparatedMode
         then ''
-          HostKey ${runtimeHostKeyPath}
+          HostKey ${runtimeKeyPath}
         ''
         else ''
           HostKey /boot/host_key
-        '';
+        ''
+      );
     };
 
     systemd.tmpfiles.rules = lib.optionals isSeparatedMode [
-      # Ensure /persist/etc/ssh directory exists before SSH tries to use it
+      # Ensure directory exists before SSH tries to use the runtime key
       "d /persist/etc/ssh 0755 root root -"
     ];
 
@@ -285,12 +286,12 @@ in
         # Note: During nixos-anywhere installation, the runtime key is installed by disko's
         # postMountHook before this activation script runs. This script is kept for
         # manual installations or recovery scenarios where /tmp/runtime_host_key exists.
-        if [ -f /tmp/runtime_host_key ] && [ ! -f ${runtimeHostKeyPath} ]; then
+        if [ -f /tmp/runtime_host_key ] && [ ! -f ${runtimeKeyPath} ]; then
           echo "Skarabox: Installing runtime host key..."
-          mkdir -p $(dirname ${runtimeHostKeyPath})
-          install -D -m 600 /tmp/runtime_host_key ${runtimeHostKeyPath}
+          mkdir -p $(dirname ${runtimeKeyPath})
+          install -D -m 600 /tmp/runtime_host_key ${runtimeKeyPath}
           rm -f /tmp/runtime_host_key
-          echo "Skarabox: Runtime host key installed at ${runtimeHostKeyPath}"
+          echo "Skarabox: Runtime host key installed at ${runtimeKeyPath}"
         fi
       '';
       deps = ["users"];  # Removed setupSecrets dependency - key must be in place before SOPS runs

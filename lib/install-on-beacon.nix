@@ -10,7 +10,7 @@ pkgs.writeShellApplication {
   text = ''
     usage () {
       cat <<USAGE
-    Usage: $0 -i IP -p PORT -f FLAKE -k HOST_KEY_FILE -u USERNAME [-a EXTRA_OPTS]
+    Usage: $0 -i IP -p PORT -f FLAKE -k HOST_KEY_FILE -u USERNAME [-d]
 
       -h:               Shows this usage
       -i IP:            IP of the target host running the beacon.
@@ -18,6 +18,7 @@ pkgs.writeShellApplication {
       -f FLAKE:         Flake to install on the target host.
       -k HOST_KEY_FILE: SSH key to use as the host identification key.
       -u USERNAME:      Username to connect to the host with.
+      -d:               Debug mode - print the nixos-anywhere command before running.
       
       Any additional arguments after the flags will be passed to nixos-anywhere.
     USAGE
@@ -29,7 +30,9 @@ pkgs.writeShellApplication {
       fi
     }
 
-    while getopts "hi:p:f:k:d:u:" o; do
+    debug=0
+
+    while getopts "hi:p:f:k:du:" o; do
       case "''${o}" in
         h)
           usage
@@ -46,6 +49,9 @@ pkgs.writeShellApplication {
           ;;
         k)
           host_key_file=''${OPTARG}
+          ;;
+        d)
+          debug=1
           ;;
         u)
           username=''${OPTARG}
@@ -64,16 +70,18 @@ pkgs.writeShellApplication {
     check_empty "$host_key_file" -k host_key_file
     check_empty "$username" -u username
 
-    # Debug: show what we're passing
-    echo "Running nixos-anywhere with args:" >&2
-    echo "  --flake $flake" >&2
-    echo "  --disk-encryption-keys /tmp/host_key $host_key_file" >&2
-    echo "  --ssh-port $port" >&2
-    echo "  Extra args (\$@):" >&2
-    for arg in "$@"; do
-      echo "    $arg" >&2
-    done
-    echo "  Target: $username@$ip" >&2
+    if [ "$debug" -eq 1 ]; then
+      echo "Debug: nixos-anywhere command:" >&2
+      echo "nixos-anywhere \\" >&2
+      echo "  --flake $flake \\" >&2
+      echo "  --disk-encryption-keys /tmp/host_key $host_key_file \\" >&2
+      echo "  --ssh-port $port \\" >&2
+      for arg in "$@"; do
+        echo "  $arg \\" >&2
+      done
+      echo "  $username@$ip" >&2
+      echo "" >&2
+    fi
 
     # All remaining arguments are passed to nixos-anywhere
     nixos-anywhere \
