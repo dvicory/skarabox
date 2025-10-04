@@ -408,11 +408,6 @@ in
                 '';
               in
                 mapAttrsToList mkTmpFile secrets;
-
-              diskEncryptionOptions = let
-                mkOption = name: path: ''--disk-encryption-keys /tmp/${name} $secret_file_${name} '';
-              in
-                mapAttrsToList mkOption secrets;
             in ''
               ip=${toString cfg'.ip}
               ssh_port=${toString hostCfg.skarabox.sshPort}
@@ -422,20 +417,27 @@ in
 
               ''
             + concatStringsSep "\n" diskEncryptionTmpFiles
-            + ''
+            + (let
+                # Build the extra arguments list properly
+                extraArgs = []
+                  ++ [ "--ssh-option" "ConnectTimeout=10" ]
+                  ++ (lib.optionals (cfg'.sshPrivateKeyPath != null) [ "-i" cfg'.sshPrivateKeyPath ])
+                  ++ (lib.flatten (mapAttrsToList (name: path: [ "--disk-encryption-keys" "/tmp/${name}" "\$secret_file_${name}" ]) secrets))
+                  ++ (lib.optionals (cfg'.runtimeHostKeyPub != null) [ "--extra-files" cfg'.runtimeHostKeyPath "/tmp/runtime_host_key" ]);
+                
+                # Convert to a bash array declaration
+                argsString = concatStringsSep " " (map (arg: ''"${arg}"'') extraArgs);
+              in ''
 
               install-on-beacon \
-                -i $ip \
+                -i "$ip" \
                 -u ${hostCfg.skarabox.username} \
-                -p $ssh_port \
+                -p "$ssh_port" \
                 -f "$flake" \
                 -k ${cfg'.hostKeyPath} \
-                --ssh-option ConnectTimeout=10 \
-                ${lib.optionalString (cfg'.sshPrivateKeyPath != null) "-i ${cfg'.sshPrivateKeyPath} \\"} 
-                ${concatStringsSep " \\\n                " diskEncryptionOptions} \
-                ${lib.optionalString (cfg'.runtimeHostKeyPub != null) "--extra-files ${cfg'.runtimeHostKeyPath} /tmp/runtime_host_key \\"} 
+                ${argsString} \
                 "$@"
-            '';
+            '');
           };
 
           # nix run .#ssh [<command> ...]
