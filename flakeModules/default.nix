@@ -398,16 +398,21 @@ in
                 })
                 // cfg'.extraSecretsPassphrasesPath;
 
+              diskEncryptionTmpFiles = let
+                mkTmpFile = name: path: ''
+                  secret_file_${name}="$(mktemp -u)"
+                  mkfifo -m 600 "$secret_file_${name}"
+                  trap 'rm -f "$secret_file_${name}"' EXIT
+                  # Write secret to FIFO in background - it will block until read
+                  sops decrypt --extract "${path}" "${cfg'.secretsFilePath}" > "$secret_file_${name}" &
+                '';
+              in
+                mapAttrsToList mkTmpFile secrets;
+
               diskEncryptionOptions = let
-                mkOption = name: path: ''--disk-encryption-keys /tmp/${name} "<(echo "''$${name}")" '';
+                mkOption = name: path: ''--disk-encryption-keys /tmp/${name} "$secret_file_${name}" '';
               in
                 mapAttrsToList mkOption secrets;
-
-              diskEncryptionVars = let
-                mkVar = name: path: ''${name}="$(sops decrypt --extract "${path}" "${cfg'.secretsFilePath}")"'';
-
-              in
-                mapAttrsToList mkVar secrets;
             in ''
               ip=${toString cfg'.ip}
               ssh_port=${toString hostCfg.skarabox.sshPort}
@@ -416,7 +421,7 @@ in
               export SOPS_AGE_KEY_FILE="${cfg.sopsKeyPath}"
 
               ''
-            + concatStringsSep "\n" diskEncryptionVars
+            + concatStringsSep "\n" diskEncryptionTmpFiles
             + ''
 
               install-on-beacon \
