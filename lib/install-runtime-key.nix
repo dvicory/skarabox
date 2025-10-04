@@ -91,7 +91,7 @@ USAGE
       -o "UserKnownHostsFile=$known_hosts" \
       -o "ConnectTimeout=10" \
       "$ssh_user@$host_ip" \
-      "sudo mkdir -p /persist/etc/ssh && sudo chmod 755 /persist/etc/ssh && sudo install -D -m 600 /dev/stdin /persist/etc/ssh/ssh_host_ed25519_key" \
+      "sudo install -D -m 600 /dev/stdin /persist/etc/ssh/ssh_host_ed25519_key" \
       < "$runtime_key"
 
     echo "Runtime key installed at /persist/etc/ssh/ssh_host_ed25519_key on $hostname"

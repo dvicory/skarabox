@@ -112,8 +112,8 @@ All commands are prefixed by the hostname, allowing to handle multiple hosts.
 
    Deploy the separated-key configuration:
    ```bash
-   $ nix run .#myskarabox-gen-knownhosts-file  # Update for separated keys
    $ nix run .#deploy-rs                       # Switches host to runtime key
+   $ nix run .#myskarabox-gen-knownhosts-file  # Update known_hosts after deployment
    ```
 
    After successful deployment, complete the migration (see warning below):
@@ -121,6 +121,9 @@ All commands are prefixed by the hostname, allowing to handle multiple hosts.
    # Remove the boot key (now aliased as myskarabox_boot) from SOPS
    $ age_key=$(nix shell nixpkgs#ssh-to-age -c ssh-to-age < myskarabox/host_key.pub)
    $ nix run .#sops -- -r -i --rm-age "$age_key" myskarabox/secrets.yaml
+
+   # Clean up .sops.yaml by removing the boot key reference and anchor
+   $ sed -i '' -e '/- \*myskarabox_boot$/d' -e '/&myskarabox_boot/d' .sops.yaml
 
    # Rotate the boot key to protect against git history attacks (destructive)
    $ nix run .#myskarabox-rotate-boot-key
