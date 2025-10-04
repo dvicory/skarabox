@@ -1,0 +1,9 @@
+keys:
+- &main age1d0uj4r7vfzgyhmn727dwmefmlxdjj9uhgjrvf7h5anta7kvx9fesuru86q
+- &phase2-test age1zdnwl04g0nfnjyr2u2kmdt2j23x5hc78wk4r5acqsp87gznuvpnq3vns8k
+creation_rules:
+- path_regex: phase2-test/secrets.yaml
+  key_groups:
+  - age:
+    - *main
+    - *phase2-test

@@ -430,7 +430,11 @@ in
                 -p $ssh_port \
                 -f "$flake" \
                 -k ${cfg'.hostKeyPath} \
-                -a "--ssh-option ConnectTimeout=10 ${if cfg'.sshPrivateKeyPath != null then "-i ${cfg'.sshPrivateKeyPath}" else ""} ${concatStringsSep " " diskEncryptionOptions} ${lib.optionalString (cfg'.runtimeHostKeyPub != null) "--extra-files ${cfg'.runtimeHostKeyPath} /tmp/runtime_host_key"} \"\$@\""
+                --ssh-option ConnectTimeout=10 \
+                ${lib.optionalString (cfg'.sshPrivateKeyPath != null) "-i ${cfg'.sshPrivateKeyPath} \\"} 
+                ${concatStringsSep " \\\n                " diskEncryptionOptions} \
+                ${lib.optionalString (cfg'.runtimeHostKeyPub != null) "--extra-files ${cfg'.runtimeHostKeyPath} /tmp/runtime_host_key \\"} 
+                "$@"
             '';
           };
 

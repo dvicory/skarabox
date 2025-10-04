@@ -18,7 +18,8 @@ pkgs.writeShellApplication {
       -f FLAKE:         Flake to install on the target host.
       -k HOST_KEY_FILE: SSH key to use as the host identification key.
       -u USERNAME:      Username to connect to the host with.
-      -a EXTRA_OPTS:    Extra options to pass verbatim to nixos-anywhere.
+      
+      Any additional arguments after the flags will be passed to nixos-anywhere.
     USAGE
     }
 
@@ -28,10 +29,7 @@ pkgs.writeShellApplication {
       fi
     }
 
-    # Initialize extra_opts array
-    extra_opts=()
-
-    while getopts "hi:p:f:k:d:a:u:" o; do
+    while getopts "hi:p:f:k:d:u:" o; do
       case "''${o}" in
         h)
           usage
@@ -52,10 +50,6 @@ pkgs.writeShellApplication {
         u)
           username=''${OPTARG}
           ;;
-        a)
-          # Use eval to properly handle the arguments, including any remaining $* args
-          eval "extra_opts=(''${OPTARG})"
-          ;;
         *)
           usage
           exit 1
@@ -70,11 +64,12 @@ pkgs.writeShellApplication {
     check_empty "$host_key_file" -k host_key_file
     check_empty "$username" -u username
 
+    # All remaining arguments are passed to nixos-anywhere
     nixos-anywhere \
       --flake "$flake" \
       --disk-encryption-keys /tmp/host_key "$host_key_file" \
       --ssh-port "$port" \
-      "''${extra_opts[@]}" \
+      "$@" \
       "$username"@"$ip"
   '';
 }
