@@ -142,22 +142,39 @@ in
         When disabled, uses single-key architecture (less secure, for backward compatibility).
       '';
     };
+
+    # Internal options - auto-detected, used by other modules
+    _isSeparatedMode = mkOption {
+      type = types.bool;
+      internal = true;
+      readOnly = true;
+      description = "Whether separated-key mode is enabled (auto-detected from SOPS config)";
+    };
+
+    _runtimeHostKeyPath = mkOption {
+      type = types.nullOr types.str;
+      internal = true;
+      readOnly = true;
+      description = "Path to the runtime host key (auto-detected from SOPS config)";
+    };
   };
 
   config = let
-    # Filter for host keys under /persist/etc/ssh/
-    persistHostKeys = builtins.filter (path: lib.hasInfix "/persist/etc/ssh/" path) (config.sops.age.sshKeyPaths or []);
+    # Filter for host keys under /persist - these are runtime keys in separated-key mode
+    persistHostKeys = builtins.filter 
+      (path: lib.hasInfix "/persist" path) 
+      (config.sops.age.sshKeyPaths or []);
 
-    # Auto-detect separated-key mode based on SOPS configuration
+    # Auto-detect separated-key mode
     isSeparatedMode = cfg.useSeparatedKeys || persistHostKeys != [];
 
     # Extract runtime host key path from SOPS configuration
-    # This is the key used for runtime SSH and SOPS decryption
-    runtimeHostKeyPath =
-      if isSeparatedMode
-      then builtins.head persistHostKeys
-      else null;
+    runtimeHostKeyPath = if persistHostKeys != [] then builtins.head persistHostKeys else null;
   in {
+    # Expose computed values for other modules to use
+    skarabox._isSeparatedMode = isSeparatedMode;
+    skarabox._runtimeHostKeyPath = runtimeHostKeyPath;
+
     assertions = [
       {
         assertion = cfg.staticNetwork == null -> config.boot.initrd.network.udhcpc.enable;
@@ -265,6 +282,9 @@ in
 
     system.activationScripts.install-runtime-ssh-key = lib.mkIf isSeparatedMode {
       text = ''
+        # Note: During nixos-anywhere installation, the runtime key is installed by disko's
+        # postMountHook before this activation script runs. This script is kept for
+        # manual installations or recovery scenarios where /tmp/runtime_host_key exists.
         if [ -f /tmp/runtime_host_key ] && [ ! -f ${runtimeHostKeyPath} ]; then
           echo "Skarabox: Installing runtime host key..."
           mkdir -p $(dirname ${runtimeHostKeyPath})
@@ -273,7 +293,7 @@ in
           echo "Skarabox: Runtime host key installed at ${runtimeHostKeyPath}"
         fi
       '';
-      deps = ["users" "setupSecrets"];
+      deps = ["users"];  # Removed setupSecrets dependency - key must be in place before SOPS runs
     };
 
     warnings = lib.optionals (!isSeparatedMode) [
