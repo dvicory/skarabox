@@ -85,9 +85,23 @@ USAGE
     echo "Boot SSH Key Rotation for $hostname"
     echo "===================================="
     echo ""
-    echo "Old key: $(ssh -p "$ssh_port" -i "$ssh_key" -o UserKnownHostsFile="$known_hosts" "$ssh_user@$host_ip" "sudo ssh-keygen -l -f /boot/host_key")"
-    echo "New key: $(ssh-keygen -l -f "$private_key_path")"
+    old_key_fp=$(ssh -p "$ssh_port" -i "$ssh_key" -o UserKnownHostsFile="$known_hosts" "$ssh_user@$host_ip" "sudo ssh-keygen -l -f /boot/host_key")
+    new_key_fp=$(ssh-keygen -l -f "$private_key_path")
+
+    echo "Old key: $old_key_fp"
+    echo "New key: $new_key_fp"
     echo ""
+
+    # Validate keys are different
+    if [ "$old_key_fp" = "$new_key_fp" ]; then
+      echo "❌ ERROR: Old and new keys are identical!" >&2
+      echo "" >&2
+      echo "You must generate a new key before rotating:" >&2
+      echo "  ssh-keygen -t ed25519 -f $private_key_path -N \"\"" >&2
+      echo "" >&2
+      exit 1
+    fi
+
     echo "This will:"
     echo " 1. Backup /boot contents to tmpfs"
     echo " 2. Securely wipe the boot partition (dd + TRIM/discard)"

@@ -126,6 +126,7 @@ All commands are prefixed by the hostname, allowing to handle multiple hosts.
    $ sed -i '' -e '/- \*myskarabox_boot$/d' -e '/&myskarabox_boot/d' .sops.yaml
 
    # Rotate the boot key to protect against git history attacks (destructive)
+   $ ssh-keygen -t ed25519 -f myskarabox/host_key -N ""
    $ nix run .#myskarabox-rotate-boot-key
    $ nix run .#myskarabox-gen-knownhosts-file
    ```
@@ -157,6 +158,7 @@ All commands are prefixed by the hostname, allowing to handle multiple hosts.
    :::
    
    ```bash
+   $ ssh-keygen -t ed25519 -f myskarabox/host_key -N ""
    $ nix run .#myskarabox-rotate-boot-key
    $ nix run .#myskarabox-gen-knownhosts-file
    ```
